@@ -598,8 +598,8 @@ It seems that I'm repeating my self rather often, but I must say it ... If you d
 
 =head1 REPORTING BUGS
 
-Report bugs in the Bug Tracker at iTools' SourceForge project page:
-L<http://sourceforge.net/projects/itools/>
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
 
 =head1 AUTHOR
 
@@ -607,10 +607,8 @@ Ingmar Ellenberger, Deepak Kumar
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2005 by Ingmar Ellenberger.
-
-Distributed under The Artistic License.
-For the text the license, see L<http://puma.sourceforge.net/license.psp>
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
 or read the F<LICENSE> in the root of the iTools distribution.
 
 =head1 SEE ALSO

@@ -359,8 +359,8 @@ This functionality may be deprecated in the future.
 
 =head1 REPORTING BUGS
 
-Report bugs in the Bug Tracker at iTools' SourceForge project page:
-L<http://sourceforge.net/projects/itools/>
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
 
 =head1 AUTHOR
 
@@ -368,10 +368,9 @@ Ingmar Ellenberger
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2011, Ingmar Ellenberger
-and distributed under The Artistic License.
-For the text the license, see L<http://puma.sourceforge.net/license.psp>
-or read the F<LICENSE> in the root of the Puma distribution.
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
+or read the F<LICENSE> in the root of the iTools distribution.
 
 Some parts copyright (c) 1995-2003, Gisle Aas; 1995, Martijn Koster.
 Distributed under The Artistic License.

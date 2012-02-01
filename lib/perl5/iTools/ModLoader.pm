@@ -59,6 +59,11 @@ the requested module before attempting to load it.
 If the module is not found, it will load it.
 If the module is found it will not reload the module and return a success status.
 
+=head1 REPORTING BUGS
+
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
+
 =head1 KNOWN ISSUES AND BUGS
 
 None.
@@ -69,9 +74,9 @@ Written by Ingmar Ellenberger.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2011, Ingmar Ellenberger and distributed under The Artistic License.
-For the text the license, see L<http://puma.sourceforge.net/license.psp>
-or read the F<LICENSE> in the root of the Puma distribution.
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
+or read the F<LICENSE> in the root of the iTools distribution.
 
 =head1 SEE ALSO
 

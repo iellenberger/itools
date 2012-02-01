@@ -432,8 +432,8 @@ Displays C<warning: MESSAGE> on STDERR and returns a C<1>.
 
 =head1 REPORTING BUGS
 
-Report bugs in the Bug Tracker at Puma's SourceForge project page:
-L<http://sourceforge.net/projects/puma/>
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
 
 =head1 AUTHOR
 
@@ -441,11 +441,9 @@ Written by Ingmar Ellenberger.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2009 by Ingmar Ellenberger.
-
-Distributed under The Artistic License.
-For the text the license, see L<http://puma.sourceforge.net/license.psp>
-or read the F<LICENSE> in the root of the Puma distribution.
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
+or read the F<LICENSE> in the root of the iTools distribution.
 
 =head1 SEE ALSO
 
