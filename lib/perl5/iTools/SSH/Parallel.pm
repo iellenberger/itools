@@ -7,7 +7,7 @@ use IPC::Open3;
 use POSIX ":sys_wait_h";
 use Symbol;
 use Time::HiRes qw( usleep );
-use iTools::System qw( verbosity vprint vnprint vnprintf );
+use iTools::Verbosity qw( verbosity vprint vprintf );
 use iTools::Term::ANSI qw( color cpush cpop );
 
 use strict;
@@ -208,8 +208,8 @@ sub showHost {
 	# <esc>8     - go to saved position
 	# <esc>[{x}C - move left {x} spaces
 	# <esc>[{y}B - move down {y} lines
-	vnprintf $self->vbase(), "\e8\e[%dC\e[%dB", $hash->{$host}->{_x}, $hash->{$host}->{_y} + 1;
-	vnprint $self->vbase(), color($code, $host);
+	vprintf $self->vbase(), "\e8\e[%dC\e[%dB", $hash->{$host}->{_x}, $hash->{$host}->{_y} + 1;
+	vprint $self->vbase(), color($code, $host);
 }
 
 # --- set up the screen for dynamic updates ---
@@ -247,18 +247,18 @@ sub start {
 	}
 	$self->{_y} = $y;
 
-	vnprint $self->vbase(), indentText($indent, "Shelling to ". scalar(@hosts) ." hosts:" . ("\n" x ($y + 2)));
+	vprint $self->vbase(), indentText($indent, "Shelling to ". scalar(@hosts) ." hosts:" . ("\n" x ($y + 2)));
 	# --- move up to starting position (<esc>[{lines}A) and save position (<esc>7) ---
 	# <esc>[{y}A - move up {y} lines
 	# <esc>7     - save posision
-	vnprint $self->vbase(), "\e[". ($y + 2) ."A\e7";
+	vprint $self->vbase(), "\e[". ($y + 2) ."A\e7";
 }
 
 # --- move to end of display area ---
 sub finish {
 	my $self = shift;
 	return unless $self->vbase() <= verbosity();
-	vnprint $self->vbase(), "\e8". ("\n" x ($self->{_y} + 2));
+	vprint $self->vbase(), "\e8". ("\n" x ($self->{_y} + 2));
 }
 
 # === Exit Status Report ====================================================
@@ -293,7 +293,7 @@ sub report {
 
 		# --- only generate message if level high enough ---
 		next unless $hostlevel >= $level;
-		vprint 1, indentText($indent, "$short\n");
+		vprint 1, '>', indentText($indent, "$short\n");
 
 		# --- generate long message ---
 		my $long;
@@ -301,7 +301,7 @@ sub report {
 			if $hash->{stdout};
 		$long .= indentText(color($errcolor, '   stderr: '), $hash->{stderr})
 			if $hash->{stderr};
-		vprint 1, indentText($indent, "$long") if defined $long;
+		vprint 1, '>'. indentText($indent, "$long") if defined $long;
 	}
 }
 

@@ -30,6 +30,11 @@ tprint system("ls > /dev/null") == 0, "system('ls')";
 print "\chdir() Tests\n";
 tprint chdir('.'), "chdir('.')";
 
+sysfoo('foobar');
+
 # === Error Report ==========================================================
 print "\n". tvar('errors') ." error(s) and ". tvar('warnings') ." warning(s) in ". tvar('count') ." tests\n\n";
 exit tvar('errors');
+
+
+sub sysfoo { CORE::system @_ };

@@ -3,16 +3,19 @@ use base Exporter;
 $VERSION = "0.01";
 
 @EXPORT_OK = qw(
-	colored verbosity vbase fatal nofatal indent
-	vprint vprintf vnprint vnprintf vtmp
+	fatal nofatal
 	die warn
 	system command
 	mkdir chdir mkcd symlink
 	rename link unlink
+
+	colored
+	indent verbosity vbase vprint vprintf vnprint vnprintf vtmp
 );
 
 use Carp qw( cluck confess );
-use iTools::Term::ANSI qw( cpush cpop color );
+use iTools::Term::ANSI qw( color );
+use iTools::Verbosity qw( vpush vpop );
 use IPC::Open3;
 use Symbol;
 
@@ -20,95 +23,36 @@ use strict;
 use warnings;
 
 # === Class Variables =======================================================
-our $CONFIG = {
-	indent => 3,
-};
+our $CONFIG = { };
 
-# === Accessors =============================================================
-# --- should output be colored? ---
-sub colored   { iTools::Term::ANSI::colored(@_) }
-# --- should errors be fatal? ---
-sub fatal     { _varDefault(1, 'fatal', @_) }
-# --- current verbosity level ---
-sub verbosity { _varDefault(0, 'verbosity', @_) }
-# --- the verbosity level at which commands start showing output ---
+# === Deprecated Calls ======================================================
+# --- the following calls will be removed in the next version of iTools::System ---
+sub verbosity { iTools::Verbosity::verbosity(@_) }
 sub vbase     { _varDefault(2, 'vbase', @_) }
-
-# --- log file output ---
-sub logfile { _var('logfile', @_) }
-sub logonly { _var('logonly', @_) }
-
-# --- indent string for vprint and vprintf ---
-sub indent {
-	# --- set the indent ---
-	$CONFIG->{indent} = shift if @_;
-
-	# --- empty string if no indent ---
-	return '' unless defined $CONFIG->{indent};
-	# --- a number of spaces by default ---
-	return ' ' x $CONFIG->{indent} if $CONFIG->{indent} =~ /^\d+$/;
-	# --- user set value ---
-	return $CONFIG->{indent};
+sub vnprint   { iTools::Verbosity::vprint(@_) }
+sub vnprintf  { iTools::Verbosity::vprintf(@_) }
+sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift) }
+sub vprintf   { iTools::Verbosity::vprintf(shift, '>'. shift) }
+sub indent    { iTools::Verbosity::vindent(@_) }
+sub vtmp(&$) {
+	my ($code, $level) = @_;
+	vpush $level; my $retval = &$code; vpop;
+	return $retval;
+}
+sub logfile { iTools::Verbosity::vlogfile(@_) }
+sub logonly {
+	iTools::Verbosity::vloglevel(iTools::Verbosity::verbosity());
+	vpush -3; 
 }
 
+sub colored   { iTools::Term::ANSI::colored(@_) }
+
+# === Accessors =============================================================
+# --- should errors be fatal? ---
+sub fatal     { _varDefault(1, 'fatal', @_) }
 sub config { my %args = @_; foreach my $key (keys %args) { $CONFIG->{lc $key} = $args{$key} } }
 
 # === Print Depending on Verbosity ==========================================
-# --- print message based on verbosity ---
-sub vnprint {
-	my ($level, $text) = @_;
-	return unless verbosity >= $level;
-
-	# --- send anything below level 0 to STDERR ---
-	if ($level < 0) { print STDERR $text }
-	else            { print $text unless logonly() }
-
-	# --- write log entry ---
-	if (my $logfile = logfile()) {
-		open iSLOG, ">>$logfile";
-		print iSLOG "[". localtime() ."] $text";
-		close iSLOG;
-	}
-}
-sub vnprintf {
-	my $level = shift;
-	my $text = sprintf shift, @_;
-	vnprint $level, $text;
-}
-# --- print message based on verbosity with indent ---
-sub vprint {
-	my ($level, $text) = @_;
-
-	return unless verbosity >= $level;
-
-	# --- indent message appropriately ---
-	my $indent = $level > 0 ? indent() x $level : '';
-	$text =~ s/^/$indent/msg;
-
-	# --- send anything below level 0 to STDERR ---
-	vnprint $level, $text;
-}
-sub vprintf {
-	my $level = shift;
-	my $text = sprintf shift, @_;
-	vprint $level, $text;
-}
-
-# --- temporarily set verbosity level for a block of code ---
-sub vtmp(&$) {
-	my ($code, $level) = @_;
-
-	# --- save old level and set new one ---
-	my $oldlevel = verbosity();
-	verbosity($level);
-
-	# --- run the code ---
-	my $retval = &$code;
-
-	# --- reset verbosity and return code value ---
-	verbosity($oldlevel);
-	return $retval;
-}
 
 # === Error Handlng =========================================================
 sub die {
@@ -116,10 +60,11 @@ sub die {
 	fatal() ? exit 1 : return if verbosity() < -1;
 
 	# --- generate and print message ---
-	my $message = "\n". cpush('R') . (fatal() ? "fatal " : '' ) ."error: ". cpop. join(' ', @_);
+	my $message = "\n". color('R', (fatal() ? "fatal " : '' ) ."error: ") . join(' ', @_);
 	$message .= "\n" unless $message =~ /\n$/ms;
 
 	# --- stack trace ---
+	$Carp::CarpLevel = 1;  # don't include die() in stacktrace
 	confess($message) if fatal;
 	cluck($message);
 	print STDERR "\n";
@@ -130,9 +75,10 @@ sub warn {
 	return if verbosity() < -1;
 
 	# --- generate and print message ---
-	my $message = "\n". cpush('Y') ."warning: ". cpop . join(' ', @_);
+	my $message = "\n". color('Y', "warning: ") . join(' ', @_);
 	$message .= "\n" unless $message =~ /\n$/ms;
 
+	$Carp::CarpLevel = 1;  # don't include warn() in stacktrace
 	cluck($message);
 	print STDERR "\n";
 }
@@ -158,10 +104,10 @@ sub system {
 	my @cmd = @_;
 
 	# --- run the command ---
-	vprint vbase(), cpush('c'). "executing: ". cpop . join(' ', @cmd) ."\n";
-	system(@cmd) == 0 && do {
+	vprint vbase(), color('c', "executing: ") . join(' ', @cmd) ."\n";
+	my $retval = system(@cmd) == 0 && do {
 		# --- clean exit ---
-		vprint vbase() + 1, cpush('g') ."command completed successfully". cpop ."\n";
+		vprint vbase() + 1, color('g', "command completed successfully") ."\n";
 		return 0;
 	};
 
@@ -177,6 +123,7 @@ sub system {
 
 	# --- exit/return ---
 	iTools::System::die "$message";
+	return $retval;
 }
 
 # --- qx replacement ---
@@ -221,33 +168,55 @@ sub command($;%) {
 # === Filesystem Tools ======================================================
 # --- mkdir wrapper with recursive ability ---
 sub mkdir {
-	foreach my $path (@_) {
+	my $retval = 1;
+
+	# --- loop through params (paths) and create the dirs ---
+	PATH: foreach my $path (@_) {
 
 		# --- make a directory list ---
 		my @dirs = split /\//, $path;                                  # split path into components
 		if ($path =~ /^\//) { shift @dirs; $dirs[0] = '/'. $dirs[0]; } # correction for blank entry if '^/'
 
 		# --- create parent directories ---
-		my $path = '';
+		my ($path, $goodpath) = ('', 1);
 		foreach my $dir (@dirs) {
 			$path = ($path ? $path .'/' : ''). $dir;
 
 			# --- skip dir if it already exists ---
 			if (-d $path) {
-				vprint vbase(), cpush('c') ."mkdir: ". cpop . $path . cpush('y') ." (already exists)". cpop ."\n";
+				vprint vbase(), color('c', "mkdir: ") . $path . color('y', " (already exists)") ."\n";
 				next;
 			}
 
-			return iTools::System::die("writefile: could not create directory '$path' - another file is in the way")
-				if -e $path;
-			vprint vbase(), cpush('c') ."mkdir: ". cpop ."$path\n";
-			mkdir $path, 0755 or iTools::System::die("error creating directory '$path': $!") && return undef;;
-}	}	}
+			# --- check for errors ---
+			if (-e $path) {
+				nofatal {
+					iTools::System::die("mkdir: could not create directory '$path' - another file is in the way")
+				};
+				$goodpath = $retval = 0;
+				last;
+			}
+			vprint vbase(), color('c', "mkdir: ") ."$path\n";
+			mkdir $path, 0755 or do {
+				iTools::System::die("error creating directory '$path': $!");
+				$goodpath = $retval = 0;
+				last;
+			}
+		}
+		vprint vbase() + 1, color('g', "path created") ."\n"
+			if $goodpath;
+	}
+
+	# --- die if we got an error and return status ---
+	iTools::System::die("mkdir: could not create all directories")
+		unless $retval;
+	return $retval;
+}
 
 # --- chdir wrapper ---
 sub chdir {
 	my $path = shift;
-	vprint vbase(), cpush('c') ."chdir: ". cpop ."$path\n";
+	vprint vbase(), color('c', "chdir: ") ."$path\n";
 	chdir $path or return iTools::System::die("can't chdir to '$path': $!") && return undef;
 	return $path;
 }
@@ -264,41 +233,43 @@ sub symlink {
 	# --- no destination defined ---
 	unless ($dest) {
 		iTools::System::die("error: attempted symlink without destination\n");
-		return;
+		return undef;
 	}
 
-	vprint vbase(), cpush('c') . "symlink: ". cpop ."$source -> $dest\n";
+	vprint vbase(), color('c', "symlink: ") ."$source -> $dest\n";
 
 	# --- delete old symlink if possible ---
 	if (-l $dest) {
-		vprint vbase() + 1, cpush('y') ."deleteting old symlink". cpop ."\n";
-		unlink $dest or iTools::System::die "could not delete old symlink\n" && return;
+		vprint vbase() + 1, color('y', "deleteting old symlink") ."\n";
+		unlink $dest or iTools::System::die "could not delete old symlink\n" && return undef;
 	} elsif (-e $dest) {
-		iTools::System::die "cannot create symlink $dest, file is in the way\n" && return;
+		iTools::System::die "cannot create symlink $dest, file is in the way\n" && return undef;
 	}
 
-	symlink $source, $dest or iTools::System::die "error creating symlink $dest" && return;
-	vprint vbase() + 1, cpush('y') ."symlink created". cpop ."\n";
+	symlink $source, $dest or iTools::System::die "error creating symlink $dest" && return undef;
+	vprint vbase() + 1, color('g', "symlink created") ."\n";
+	return 1;
+}
+# --- create a hard link ---
+sub link {
+	my ($ori, $new) = @_;
+	vprint vbase(), color('c', "link: ") ."$ori -> $new\n";
+	link $ori, $new
+		or iTools::System::die "could not create link\n" && return undef;
+}
+
+# --- delete a file ---
+sub unlink {
+	vprint vbase(), color('c', "unlink: ") . join(' ', @_) ."\n";
+	unlink @_ or iTools::System::die "could not delete files\n" && return;
 }
 
 # --- rename wrapper ---
 sub rename {
 	my ($old, $new) = @_;
-	vprint vbase(), cpush('c') ."rename: ". cpop ."$old -> $new\n";
+	vprint vbase(), color('c', "rename: ") ."$old -> $new\n";
 	rename $old, $new or return iTools::System::die("can't rename '$old' to '$new': $!") && return undef;
 	return $new;
-}
-
-sub unlink {
-	vprint vbase(), cpush('c') ."unlink: ". cpop . join(' ', @_) ."\n";
-	unlink @_ or iTools::System::die "could not delete files\n" && return;
-}
-
-sub link {
-	my ($ori, $new) = @_;
-	vprint vbase(), cpush('c') ."link: ". cpop ."$ori -> $new\n";
-	link $ori, $new
-		or iTools::System::die "could not create link\n" && return;
 }
 
 # === Private Methods =======================================================
@@ -352,69 +323,150 @@ sub _varDefault {
 
 =head1 NAME
 
-iTools::System - system tools
+iTools::System - system tool replacements and additions
 
 =head1 SYNOPSIS
 
- use iTools::System qw( FUNCTIONS );
-
- verbosity(VERBOSITY);
- system(COMMAND);
- iSystemNonFatal(COMMAND);
- iChDir(DIRECTORY);
- iError(MESSAGE);
- iErrorNonFatal(MESSAGE);
- iWarn(MESSAGE);
+ use iTools::System qw(
+    fatal nofatal
+    die warn
+    system command
+    mkdir chdir mkcd
+    symlink rename link unlink
+ );
 
 =head1 DESCRIPTION
 
-This package provides a number of exports for running system commands with error handling wrappers.
-It also provides a standard interface for displaying warnings and error messages.
+This package provides drop-in replacements for a number of Perl built-ins.
+Universally, these replacements provide more verbose, controllable error handling and logging.
+Other enhancements are also provided as per the nature os each function.
+
+Unless otherwise specified, all functions take the same parameters and
+return the same value as their native Perl counterparts.
+
+The following functions are Perl built-in replacements:
+
+   system
+   chdir mkdir
+   link symlink
+   unlink rename
+   die warn
+
+The following functions extend functionality:
+
+   fatal()   - enables and disables exit-on-die
+   nofatal() - enables and disables exit-on-die for a code block
+   command() - replacement for qx()
+   mkcd      - combined mkdir() and chdir()
+
+Functions from iTools::Term::ANSI(3pm) and iTools::Verbosity(3pm)
+are used extensively in this package to provide colored and verbosity-based output.
+See the manual pages for these libraries for details on setting output and logging options.
 
 =head1 EXPORTS
 
-All functions myst be explicitly imported.
+All functions must be explicity imported or called with a full package path.
+Failing to do so will run the native Perl function.
+
+Example: Imported Function
+
+   use iTools::System qw( system );    # import 'system()'
+   system "command";                   # uses iTools::System
+   CORE::system "command";             # uses Perl built-in
+
+Example: Un-imported Function
+
+   use iTools::System;                 # don't import anything
+   iTools::System::system("command");  # uses iTools::System
+   system "command";                   # uses Perl built-in
+
+=head2 Perl Built-In Replacements:
+
+All built-in replacements (except die() and warn()) provide the following:
+
+  * show commands at verbosity(2) and success messages at verbosity(3)
+  * detailed error messages with stacktraces
+  * exit the program on error if fatal() is set
 
 =over 4
 
-=item iChDir(DIRECTORY)
+=item B<system> [PROGRAM] LIST
 
-Does a Perl C<chdir()>.
-If DIRECTORY does not exist, or it could not C<chdir()> to the DIRECTORY, it will display a message and C<exit(1)>.
+=item B<link> OLDFILE, NEWFILE
 
-=item iError(MESSAGE)
+=item B<unlink> LIST
 
-Displays C<error: MESSAGE> on STDERR and exits with a C<1>.
-Since this function calls C<exit()>, there is no relevant return value.
+=item B<rename> OLDNAME, NEWNAME
 
-=item iErrorNonFatal(MESSAGE)
+All of these functions take the same parameters and return the same values as
+their native Perl counterparts.
 
-Displays C<error: MESSAGE> on STDERR and returns a C<1>.
+=item B<mkdir> PATH [, PATH [...]]
 
-=item system(COMMAND)
+mkdir() takes one or more PATHs and creates to associated directories and
+returns '1' if all paths are created and '0' on failure.
+It also creats parent directories when necessary.
 
-Does a C<system()> call and returns a C<0> on success.
-If the command fails, an series of error messages describing the failure will be sent to STDERR and the program will exit with a C<1>.
+=item B<chdir> PATH
 
-=item iSystemNonFatal(COMMAND)
+chdir() changes the working directory to PATH and
+returns PATH on success or 'undef' on failure.
 
-Same as C<system()>, except that it will return a C<1> on failure instead of exiting.
+=item B<symlink> OLDFILE, NEWFILE
 
-=item verbosity([VERBOSITY])
+symlink() takes the same parameters as the Perl built-in and
+return true on success and false on failure.
+It also overwrites existing symlinks if they exist and report when it does at verbosity(3).
 
-Adjusts the verbosity level of commands in this module.
-The following are valid values for VERBOSITY:
+=item B<die> LIST
 
-   -1  Turn off all warnings (errors will still be displayed)
-   0   Default level
-   1   display C<system()> commands as executed (like C<bash -x>)
-   2   display extended debugging for C<system()> commands
+=item B<warn> LIST
 
-C<verbosity()> will return the new verbosity level, or the current level if called without parameters.
+die() and warn() take the same parameters and return the same values as the Perl built-ins.
+They also provides the following:
 
-=item iWarn(MESSAGE)
+  * display messages at verbosity(-1)
+  * display a stack trace
+  * exit the program if fatal() is set (die() only)
 
-Displays C<warning: MESSAGE> on STDERR and returns a C<1>.
+=back
+
+=head2 Extended Functionality:
+
+=over 4
+
+=item B<fatal> 0|1
+
+=item B<nofatal> { CODE }
+
+Allows you to change the fatality level for die() calls.
+
+If fatal() is true (default), all calls to die() will cause the program to exit.
+If fatal() is false, all calls to die() will be treated as warnings.
+
+nofatal() allows you to temporarilly set fatal() to false for the given code block.
+
+=item B<command> COMMAND [, %EXTINFO]
+
+command() is a replacement for Perl's qx() with all the added features and
+error handling of iTools' system() command (see above).
+
+command() returns an array of lines sent to STDOUT in array context
+or a single string of STDOUT output in scalar context.
+
+You may optionally pass a hash as the second parameter to get extended information about the process that ran.
+The hash will contain the following information:
+
+  stdout  => <STDOUT> or ''
+  stderr  => <STDERR> or ''
+  pid     => the process PID
+  status  => the shell command's exit status
+  message => the success/failure message generated by command()
+
+=item B<mkcd> PATH
+
+Creates the directory PATH and then changes the working directory to PATH.
+Same as, "mkdir(PATH); chdir(PATH)"
 
 =back
 
@@ -422,11 +474,9 @@ Displays C<warning: MESSAGE> on STDERR and returns a C<1>.
 
 =over 4
 
-=item B<Quicklist>
+=item ToDo: B<Fully Deprecate Old Verbosity Functions>
 
-  - Make preferred usage as obj?
-  - Setting 'fatal' internally is stateful, it shouldn't be.
-    - ex. see iSystemNonFatal
+Need to do this after all my other tools are converted.
 
 =back
 

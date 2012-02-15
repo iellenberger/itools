@@ -6,7 +6,7 @@ use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debu
 use Cwd;
 use FindBin qw( $Script $RealBin $RealScript );
 use Getopt::Long;
-use iTools::System qw( vprint vbase );
+use iTools::Verbosity qw( vprint vbase );
 use iTools::Term::ANSI qw( color cpush cpop );
 
 use strict;
@@ -267,9 +267,9 @@ sub setUser {
 	chdir '/tmp';
 
 	# --- re-execute the command as the correct user ---
-	vprint 0, "Running script as user ". color(c => $user) ."\n";
+	vprint 1, "Running script as user ". color(c => $user) ."\n";
 	my $cmd = "sudo -H -u $user $RealBin/$RealScript --isorundir $cwd ". join(' ', $self->argv);
-	vprint vbase(), color(c => $cmd) ."\n";
+	vprint 2, '>'. color(c => $cmd) ."\n";
 	exec $cmd;
 }
 
