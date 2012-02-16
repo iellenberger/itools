@@ -6,7 +6,7 @@ use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debu
 use Cwd;
 use FindBin qw( $Script $RealBin $RealScript );
 use Getopt::Long;
-use iTools::Verbosity qw( vprint vbase );
+use iTools::Verbosity qw( vprint );
 use iTools::Term::ANSI qw( color cpush cpop );
 
 use strict;
