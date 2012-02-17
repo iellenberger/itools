@@ -74,7 +74,7 @@ sub vprint {
 
 	return 1;
 }
-sub vprintf { vprint shift, sprintf(shift, @_) }
+sub vprintf { vprint shift, sprintf(shift || '', @_) }
 
 # --- temporarily set verbosity for a block of code ---
 sub vpush { unshift @{scalar _varray()}, _vcalc(shift) }
