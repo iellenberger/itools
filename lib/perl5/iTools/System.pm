@@ -31,8 +31,8 @@ sub verbosity { iTools::Verbosity::verbosity(@_) }
 sub vbase     { _varDefault(2, 'vbase', @_) }
 sub vnprint   { iTools::Verbosity::vprint(@_) }
 sub vnprintf  { iTools::Verbosity::vprintf(@_) }
-sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift) }
-sub vprintf   { iTools::Verbosity::vprintf(shift, '>'. shift) }
+sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift, @_) }
+sub vprintf   { iTools::Verbosity::vprintf(shift, '>'. shift, @_) }
 sub indent    { iTools::Verbosity::vindent(@_) }
 sub vtmp(&$) {
 	my ($code, $level) = @_;

@@ -74,7 +74,17 @@ sub vprint {
 
 	return 1;
 }
-sub vprintf { vprint shift, sprintf(shift || '', @_) }
+sub vprintf {
+	my ($level, $format) = (shift, shift);
+
+	# --- do a bit of checking to make sure we don't throw an error here ---
+	$format = 'undef' unless defined $format;
+
+	# --- render and print ---
+	my $message = $format;
+	if (@_) { $message = sprintf $format, @_ }
+	vprint $level, $message;
+}
 
 # --- temporarily set verbosity for a block of code ---
 sub vpush { unshift @{scalar _varray()}, _vcalc(shift) }
