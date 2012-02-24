@@ -1,0 +1,801 @@
+#!/usr/bin/perl -w
+$VERSION='1.0';
+
+use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
+
+use Carp;
+use Cwd 'abs_path';
+use English;
+use FindBin qw($Bin);
+use Getopt::Long;
+use POSIX;
+use Time::HiRes qw( usleep );
+
+use strict;
+use warnings;
+
+# === Globals ===============================================================
+# --- set static option defaults ---
+my $options = {
+	logdir  => '/var/log',
+	piddir  => '/var/run',
+	'chdir' => '/',
+	timeout => 1,
+};
+my @operations = qw( start stop restart status );
+
+# === Main Body of Code =====================================================
+# --- load up all the options ---
+configure($options);
+
+# --- show usage or man page ---
+$options->{help} && do { usage(); last };
+$options->{man}  && do { exec "perldoc $0" };
+
+# --- perform requested operations ---
+$options->{stop}   && stop();
+$options->{start}  && start();
+$options->{status} && status();
+
+exit 0;
+
+# === Daemon Control ========================================================
+# --- stop daemon ---
+sub stop {
+	my $signal = $options->{signal} || 15;
+	my $pid = getPID();
+
+	#! --- cleanly delete pidfile and continue if daemon not running ---
+	unless ($pid) {
+		deletePID();
+		viprint(0, "zero or null PID during kill attempt\n");
+		return;
+	}
+
+	# --- kill the daemon ---
+	viprint(0, "Stopping daemon\n");
+	viprint(1, "kill $signal, $pid\n");
+	#! TODO: send 15 (SIGTERM), wait and then send 9 (SIGKILL)
+	my $killstat = kill $signal, $pid;
+
+	# --- delete pidfile and return status ---
+	my $status = isStopped($pid);
+	deletePID() if $status == 1;
+	return $status;
+}
+
+# --- get daemon status ---
+sub status {
+	my $status = isAlive();
+	viprint(0, "Daemon is ". ($status == 1 ? 'alive' : 'dead') ."\n");
+	return $status;
+}
+
+# --- start daemon ---
+sub start {
+	# --- fork and exit parent ---
+	if (forkSafe()) {
+		my $status = isStarted();
+		exit 0 if $status == 1;
+		exit 1 if $status == 0;
+		exit $status;
+	}
+
+	# --- detach from terminal ---
+	my $sid;
+	croak "Cannot detach from controlling terminal"
+		unless $sid = POSIX::setsid();
+	viprint(0, "Spawning daemon '". join(' ', $options->{command}) ."'\n");
+
+	# --- fork again to prevent acquiring a controling terminal ---
+	$SIG{'HUP'} = 'IGNORE';
+	forkDaemon();
+
+	# === various one liners that need to be done before starting daemon ===
+	deletePID(); writePID();                           # create pidfile
+	setuid($options->{user})  if $options->{user};     # set UID
+	setgid($options->{group}) if $options->{group};    # set GID
+	umask($options->{'umask'} || 0);                   # umask
+	chroot $options->{chroot} if $options->{chroot};   # chroot
+	chdir $options->{'chdir'} if $options->{'chdir'};  # chdir
+
+	# --- close open file descriptors ---
+	foreach my $ii (0 .. openmax()) { POSIX::close($ii); }
+	# --- disconnect STDIO pipes ---
+	open STDIN, "+>/dev/null";
+	if ($options->{logfile}) {
+		# --- make sure the logs dir exists ---
+		#! TODO: use the iTools lib for creating this from logfile if necessary
+		mkdir $options->{logdir} if $options->{logdir};
+
+		# --- write output to logfile ---
+		open STDOUT, ">>", $options->{logfile}
+			or croak "cannot append to '$options->{logfile}': $!\n";
+	} elsif ($options->{'pipe'}) {
+		open STDOUT, "|$options->{'pipe'}"
+			or croak "could not pipe output to '$options->{pipe}': $!\n";
+	} else {
+		open STDOUT, "+>&STDIN";
+	}
+	open STDERR, "+>&STDOUT";
+	select((select(STDERR), $|=1)[0]);
+	select((select(STDOUT), $|=1)[0]);
+
+	# --- execute command, return sid ---
+	setpgrp(0);
+	exec($options->{command});
+}
+
+# --- daemon forking ---
+sub forkDaemon { exit 0 if forkSafe(); $PID }
+sub forkSafe {
+	my $pid = 0;
+	FORK: {
+		if (defined($pid = fork))              { return $pid }
+		elsif ($OS_ERROR =~ /No more process/) { sleep 5; redo FORK }
+		else                                   { croak "Can't fork: $!" }
+}	}
+# --- get max number of open files ---
+sub openmax {
+    my $openmax = POSIX::sysconf(&POSIX::_SC_OPEN_MAX);
+    return (!defined($openmax) || $openmax < 0) ? 64 : $openmax;
+}
+
+# === Process Status (internals) ============================================
+
+# --- wait for the process to start ---
+sub isStarted {
+	my $pid = shift;
+
+	# --- initialize timer ---
+	my $timer = 0;
+	my $timeout = $options->{timeout};
+
+	# --- make sure we have a PID ---
+	for (; $timer < $timeout; $timer += 0.1) {
+		$pid = readPID() unless $pid;  # read the pidfile
+		last if $pid;                  # break loop if we have a pid
+		usleep 100000;                 # sleep 0.1 sec
+	}
+	if ($timer >= $timeout) {
+		# --- time has expired ---
+		viprint(1, "isStarted: could not determine PID\n");
+		return -1;
+	}
+
+	# --- wait for the daemon to start ---
+	for (; $timer < $timeout; $timer += 0.1) {
+		last if isAlive($pid);         # break loop if process is running
+		usleep 100000;                 # sleep 0.1 sec
+	}
+	if ($timer >= $timeout) {
+		# --- time has expired ---
+		viprint(1, "isStarted: process is not running\n");
+		return 0;
+	}
+
+	# --- if we got here, we're good ---
+	viprint(1, "isStarted: process is running\n");
+	return 1;
+}
+
+# --- wait for the process to stop ---
+sub isStopped {
+	my $pid = shift || readPID() || 0;
+
+	# --- could not figure out PID ---
+	unless ($pid) {
+		viprint(1, "isStopped: could not determine PID\n");
+		return -1;
+	}
+
+	# --- initialize timer ---
+	my $timer = 0;
+	my $timeout = $options->{timeout};
+
+	# --- wait for the daemon to stop ---
+	for (; $timer < $timeout; $timer += 0.1) {
+		last if isDead($pid);          # break loop if process is stopped
+		usleep 100000;                 # sleep 0.1 sec
+	}
+	if ($timer >= $timeout) {
+		# --- time has expired ---
+		last if isAlive($pid);
+		viprint(1, "isStopped: process is still running\n");
+		return 0;
+	}
+
+	# --- if we got here, we're good ---
+	viprint(1, "isStopped: process is stopped\n");
+	return 1;
+}
+
+# --- get the process state ---
+sub isAlive { getState(shift, 1) }
+sub isDead  { getState(shift, 0) }
+sub getState {
+	my $pid = shift || readPID() || 0;
+	my $state = shift || 0;
+
+	# --- could not figure out PID ---
+	unless ($pid) {
+		viprint(1, "getState($state): could not determine PID\n");
+		return -1;
+	}
+
+	# --- return whether the proc is running based on desired state ---
+	# if state = 0 we're trying to determine if the process is stopped
+	# if state = 1 we're trying to determine if the process is running
+	my $alive = kill 0, $pid;
+	viprint(2, "getState($pid, $state): $alive\n");
+	return $state ? $alive : !$alive;
+}
+
+# === PIDFile Management ====================================================
+# --- get PID from memory or pidfile ---
+sub getPID {
+	my $file = shift || $options->{pidfile};
+	return $options->{pid} if $options->{pid};
+	return $options->{pid} = readPID($file);
+}
+
+# --- write PID to pidfile ---
+sub writePID {
+	my $file = shift || $options->{pidfile};
+
+	# --- sanity checks ---
+	usage("Could not figure out pidfile name.  Review matching options")
+		unless $file;
+	if (-e $file) {
+		viprint(1, "(write) pidfile '$file' already exists\n");
+		return;
+	}
+
+	# --- write the pidfile ---
+	open PIDFILE, ">$file" or
+		croak "Could not open pidfile '$file'";
+	print PIDFILE $PID;
+	close PIDFILE;
+}
+
+# --- read PID from pidfile ---
+sub readPID {
+	my $file = shift || $options->{pidfile};
+
+	# --- sanity checks ---
+	usage("Could not figure out pidfile name.  Review matching options")
+		unless $file;
+	unless (-f $file) {
+		viprint(1, "(read) pidfile '$file' does not exists\n");
+		return 0;
+	}
+
+	# --- read the pidfile ---
+	open PIDFILE, "$file" or
+		croak "Could not open pidfile '$file'";
+	my $pid; { local $/; $pid = <PIDFILE>; }
+	close PIDFILE;
+
+	# --- return the PID ---
+	viprint(1, "(read) pidfile '$file' was empty\n") if !$pid;
+	return $pid;
+}
+
+# --- delete pidfile ---
+sub deletePID {
+	my $file = shift || $options->{pidfile};
+
+	# --- sanity checks ---
+	croak "Attemted to write pidfile without giving a filename"
+		unless $file;
+	unless (-e $file) {
+		viprint(1, "(delete) pidfile '$file' does not exists\n");
+		return;
+	}
+
+	# --- attempt to delete the pidfile ---
+	croak "Could not delete pidfile '$file'"
+		if !unlink($file) || -e $file;
+}
+
+# === Utility Functions =====================================================
+# --- print message based on verbosity ---
+sub viprint {
+	my ($level, $text) = @_;
+
+	return unless $options->{verbosity} >= $level;
+	my $indent = $level > 0 ? '   ' x $level : '';
+	$text =~ s/^/$indent/msg;
+	print $text;
+}
+sub vprint {
+	my ($level, $text) = @_;
+	return unless $options->{verbosity} >= $level;
+	print $text;
+}
+
+# === Configuration =========================================================
+sub configure {
+	usage() unless @ARGV; # force help message if no arguments
+
+	# --- parse the command line options ---
+	my $options = shift || {};
+	Getopt::Long::Configure ('bundling');
+	GetOptions($options,
+		# --- core parameters ---
+		'help|?+', 'man+',   # usage and man pages
+		'quiet|q+',          # do things quietly
+		'verbose|v+',        # do things loudly
+		'verbosity=n',       # set an explicit verbosity level
+		'version+',          # show the version
+
+		# --- operations and options---
+		map("$_+", @operations),        # operations
+
+		# --- flags ---
+		'nochdir|nocd+',                  # don't chdir before starting daemon
+		'stdlog|log+',                    # log STDIO to default location
+
+		# --- parameters ---
+		'chroot|r=s',                     # location to chroot
+		'chdir|cd|d=s',                   # location to chdir
+		'umask|k=s',                      # daemon umask
+		'nicelevel|nice|N=i',             # daemon licelevel
+		'user|chuid|c|u=s', 'group|g=s',  # user and group
+		'pidfile|p=s', 'piddir=s',        # pidfile location
+		'name|n=s', 'instance|i=s',       # program name and instance
+		'logfile|l=s', 'logdir=s',        # logfile location
+		'pipe=s',                         # pipe output to a command
+		'timeout|t=s',                    # seconds to wait to verify start and stop
+
+		# --- parameters for 'stop' ---
+		'signal|s=i',                     # signal used to kill daemon
+	);
+
+	# --- show usage or man page ---
+	$options->{help} && do { usage() };
+	$options->{man} && do { exec "perldoc $0" };
+
+	# --- show the version ---
+	if ($options->{version}) {
+		print "$::VERSION\n";
+		exit 0;
+	}
+
+	# --- verbosity ---
+	usage("can't be quiet and verbose at the same time")
+		if $options->{quiet} && $options->{verbose};
+	$options->{verbosity} ||= ($options->{verbose} || 0) - ($options->{quiet} || 0);
+	delete @{$options}{qw(quiet verbose)};
+
+	# --- must be root for certain things ---
+	usage("Must be root to change UID or GID")
+		if ($options->{user} || $options->{group}) && $EUID != 0;
+
+	# --- count operations (start, stop. etc.) Must equal exactly one, else error ---
+	my $opsum = 0;
+	foreach my $op (@operations) { $opsum += $options->{$op} || 0; }
+	if ($opsum == 0) {
+		my $op = lc shift @ARGV;
+		usage("Specify a valid operation") unless grep $_ eq $op, @operations;
+		$options->{$op} = 1;
+	}
+	usage("Specify only one operation") if $opsum > 1;
+	# --- use start and stop for restart ---
+	if ($options->{restart}) {
+		$options->{start} = $options->{stop} = 1;
+		delete $options->{restart};
+	}
+
+	# --- parse --name name.instance format ---
+	if (!$options->{instance} && $options->{name} && $options->{name} =~ /\./) {
+		my @bits = split /\./, $options->{name};
+		$options->{instance} = pop @bits;
+		$options->{name} = join '.', @bits;
+	}
+
+	# --- divine program info ---
+	if ($options->{start}) {
+		usage("Please specify a COMMAND") unless $ARGV[0];
+		my $info = getCommandInfo(shift @ARGV);
+		$options->{name} ||= $info->{name};
+		$options->{instance} ||= $info->{instance};
+
+		# --- get full command line ---
+		usage("Command not found: '$info->{original}'") unless $info->{found};
+		$options->{command} = join ' ', $info->{found}, @ARGV;
+	}
+
+	# --- pidfile location ---
+	if ($options->{pidfile}) {
+		my $info = getCommandInfo($options->{pidfile});
+		$options->{name} ||= $info->{name};
+		$options->{instance} ||= $info->{instance};
+	} else {
+		$options->{pidfile} = "$options->{piddir}/". join('.', $options->{name}, $options->{instance}) .".pid"
+	}
+	delete $options->{piddir};
+
+	# --- logfile location ---
+	$options->{logfile} = "$options->{logdir}/". join('.', $options->{name}, $options->{instance}) .".log"
+		if !$options->{logfile} && $options->{stdlog};
+	$options->{logdir} = ($options->{logfile} =~ /^(.*)\/.*?/)[0] || '.'
+		if $options->{logfile};
+
+	# --- don't chdir if requested ---
+	delete @{$options}{qw( chdir nochdir )}
+		if $options->{nochdir};
+
+	# --- calculate UID and GID ---
+	if ($options->{user}) {
+		($options->{user}, $options->{group}) = split ':', $options->{user}
+			if $options->{user} =~ /:/;
+		$options->{user} = getpwnam($options->{user})
+			if $options->{user} =~ /\D/;
+	}
+	$options->{group} = getgrnam($options->{group})
+		if $options->{group} && $options->{group} =~ /\D/;
+
+	viprint(4, "Options, as computed:\n". Data::Dumper->Dump([$options], ['options']));
+	return $options;
+}
+
+# --- get info about the command to be run ---
+sub getCommandInfo {
+	my $cmd = shift;
+
+	# --- predeclare a few things ---
+	my $knownextensions = "sh|pl|exe|rb|java|pid";
+	# --- seed hash to ensure no undef values ---
+	my $info = {
+		original => $cmd, found => '', absolute => '',
+		path => '', command => '',
+		name => '', instance => '', extension => '',
+	};
+
+	# --- parse path and command ---
+	($info->{path}, $info->{command}) = ($cmd =~ m|^(.*?/?)([^/]*)$|);
+	# --- search env path if no path given ---
+	$info->{path} = (grep -e "$_/$info->{command}", split(':', $ENV{PATH}))[0] || ''
+		unless $info->{path};
+	# --- expand path ---
+	if ($info->{path}) {
+		$info->{absolute} = abs_path "$info->{path}/$info->{command}";
+		$info->{path} = abs_path "$info->{path}"
+	}
+	# --- generate fill command name ---
+	$info->{found} = "$info->{path}/$info->{command}"
+		if -e "$info->{path}/$info->{command}";
+
+	# --- parse name, instance and known extensions ---
+	my @parts = split /\./, $info->{command};
+	$info->{extension} = pop @parts
+		if @parts >= 2 && $parts[-1] =~ /^(?:$knownextensions)$/;
+	$info->{instance} = pop @parts
+		if @parts >= 2;
+	$info->{name} = join '.', @parts;
+
+	return $info;
+}
+
+# === Usage and Error Message ===============================================
+sub usage {
+	my $error = shift;
+	my $progname = ($0 =~ /([^\/]*)$/)[0] || $0;
+
+	print STDERR qq[\nERROR: $error\n] if $error;
+	print STDERR qq[
+usage: $progname [options] OPERATION COMMAND [-- command options]
+
+   -?, --help     display this message
+      --man          display the manual page for $progname
+   -q, --quiet    do things quietly
+
+Operations:
+   start     Start a daemon
+   stop      Stop a daemon
+   restart   Restart a daemon
+   status    Show the status of a daemon
+
+Matching options (at least one is required):
+   -p, --pidfile PIDFILE        PID file to check
+   -n, --name NAME              Process name
+      -i, --instance INSTANCE   Instance name
+
+Options (see manual page for more):
+
+   -u, --user NAME|UID          Run process as this user
+   -g, --group GROUP|GID        Run process as this group
+   -s, --signal SIGNUM          Signal to send (default 15: TERM)
+   -r, --chroot DIR             Chroot to DIR before starting
+   -d, --chdir DIR              Change to DIR (default is /)
+      --nochdir                  Don't change dir before spawning
+   -N, --nicelevel NICE         Add incr to the process's nice level
+   -k, --umask MASK             Change the umask to MASK before starting
+	-t, --timeout SECONDS        Number of seconds to wait to verify start and stop
+
+STDOUT/STDERR logging options:
+   -l, --logfile FILE           Send logs to FILE
+   --stdlog                     Send logs to logdir/name[.instance].log
+   --logdir DIR                 Send logs to DIR (default: $options->{logdir})
+   --pipe COMMAND               Pipe output to a command
+
+iTools daemon, version $::VERSION
+
+];
+	exit 1;
+}
+
+=head1 NAME
+
+daemon - daemon control system
+
+=head1 SYNOPSIS
+
+ daemon {-?|--man}
+ daemon [options] OPERATION COMMAND [-- command options]
+
+=head1 DESCRIPTION
+
+B<daemon> is used to control the creation and termination of system-level processes.
+Using one of the matching options, it can be configured to find existing instances of a running process.
+
+B<daemon> is a pure Perl command modeled after Debian's B<start-stop-daemon>.
+
+=head1 COMMANDS
+
+=over 4
+
+=item B<start>, B<--start>
+
+Starts the process.
+If the process is already running, it does nothing and returns 1.
+
+=item B<stop>, B<--stop>
+
+Starts the process.
+If the process was not running, it does nothing and returns 1.
+
+=item B<restart>, B<--restart>
+
+Executes the B<stop> and B<start> commands in sequence.
+
+=item B<status>, B<--status>
+
+Checks if the process if running.
+Returns 0 if the process is found, 1 if not.
+
+=back
+
+=head1 MATCHING OPTIONS
+
+In order for B<daemon> to work correctly it must be able to determine the NAME
+and optional INSTANCE for the daemon.
+It does this by either taking the parameters directly from the B<--name> and B<--instance> parameters
+by parsing the COMMAND or PIDFILE name.
+It does this by presuming a '.' dot separated namespace in for the COMMAND or PIDFILE.
+
+In parsing, B<--name> and B<--instance> take precedence over COMMAND
+and COMMAND takes precedence over PIDFILE.
+Paths and common extensions (sh, pl, exe, rb, java, pid) are ignored.
+
+Examples:
+
+    PARAMETERS                            NAME      INSTANCE  
+    ------------------------------------  --------  --------  
+    /usr/bin/httpd                        httpd               
+    /opt/apache/httpd.local               httpd        local  
+    httpd.local.8080                      httpd.local   8080  
+    httpd.exe                             httpd               
+    httpd.local.exe                       httpd        local  
+    httpd -i local                        httpd        local  
+    httpd.local -n apache                 apache       local  
+    -p /var/run/httpd.8080.pid            httpd         8080  
+    -p httpd.8080.pid -n apache -i local  apache       local  
+    apache2 -p httpd.8080.pid -i local    apache2      local  
+
+=over 4
+
+=item COMMAND
+
+The command to be spawned as a daemon.
+Required for B<--start> and B<--restart> commands.
+
+=item B<-p>, B<--pidfile> PIDFILE; B<--piddir> PIDDIR
+
+The PIDFILE to be written.
+If no PIDFILE is given, PIDDIR/NAME[.INSTANCE].pid is used.
+If PIDFILE is given, PIDDIR is ignored.
+
+=item B<-n>, B<--name> NAME
+
+=item B<-i>, B<--instance> INSTANCE
+
+The NAME and INSTANCE for the process.
+Both NAME and INSTANCE can be passed via the B<--name> parameter as C<NAME.INSTANCE>.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<-d>, B<--cd>, B<--chdir> PATH
+
+=item B<--nocd>, B<--nochdir>
+
+Chdir to PATH before starting the process.
+This is done after B<--chroot> if the option is set.
+
+By default, B<daemon> will chdir to '/' (root) before startind the process.
+To stop this behaviour, use the B<--nochdir> flag.
+
+=item B<-l>, B<--logfile> FILE
+
+=item B<--log>, B<--stdlog>; B<--logdir> DIR
+
+=item B<--pipe> COMMAND
+
+By default, all pipes (including STDIO pipes) are disconnected before the process is started.
+If you want to capture STDOUT and STDERR in a log file, specify a B<--logfile> or use the B<--log> switch.
+
+If you use the B<--log> switch and do not specify a logfile or directory, output will go to the file
+/var/log/NAME.INSTANCE.log (see B<--name> and B<--instance> in MATCHING OPTIONS).
+
+The B<--pipe> option allows you to pipe the output to a command rather than a file.
+
+You can change the default logging directory via the B<--logdir> option.
+
+=item B<-r>, B<--chroot> DIR
+
+Chroot to DIR before starting the process. Please
+This is done before the chdir but after the pidfile is written
+(1.e. the pidfile will not be written in the chroot'ed jail)
+
+=item B<-k>, B<--umask> MASK
+
+Set the file creation mask for the process.
+
+=item B<-N>, B<--nice>, B<--nicelevel> LEVEL
+
+Set the process priority.
+
+=item B<-u>, B<-c>, B<--user>, B<--chuid> USER|UID[:GROUP|GID]
+
+=item B<-g>, B<--group> GROUP|GID
+
+Set the USER and or GROUP the process will be run as.
+You must be root to use this option.
+
+You can specify either the name or number for both user and group.
+
+Examples:
+
+    --user joe --group admins
+    --user joe:admins
+    --user 100 --group 99
+    --user 100:99
+
+If the GROUP is set via the B<--user> parameter, the B<--group> parameter will be ignored.
+
+=item B<-s>, B<--signal> SIGNUM
+
+Specify the signal number to send when using the B<--stop> command.
+
+=item B<-t>, B<--timeout> SECONDS
+
+Number of seconds to wait after a start and stop operation to verify that the operation succeeded.
+Default value is 1 second.
+
+For 'stop', this is a minimum wait time.
+'start' will always wait this length to verify the process is still running.
+
+=item B<-?>, B<--help>; B<--man>
+
+Display a short usage message, or the full manual page (sic).
+
+=item B<-q>, B<--quiet>; B<-v>[B<vvv>], B<--verbose>, B<--verbosity> LEVEL
+
+Do things quietly or loudly.
+There are several incremental levels of verbosity (LEVEL in brackets) :
+
+    -qq    (-2) suppress all messages
+    -q     (-1) only show error messages
+           (0)  normal output
+    -v     (1)  show extended progress
+    -vv    (2)  show detailed progress
+    -vvv   (3)  show system and extended internal comands
+    -vvvv  (4)  full debugging output
+
+=back
+
+=head1 EXIT STATUS
+
+B<daemon> returns the following:
+
+    0 - process was started/stopped or is running (status)
+    1 - nothing was done or process is not running
+    2 - error executing command
+
+All errors are printed to STDOUT.
+
+=head1 KNOWN ISSUES AND BUGS
+
+None.
+
+=head1 TODO
+
+=over 4
+
+=item Have main process loop for status
+
+Exit after success error or timeout
+
+=item Add signal schedules
+
+A la start-stop-daemon's --retry option.
+
+=item Allow signal names to be passed to B<--signal>
+
+=item Allow B<--stop> for all instances in a namespace
+
+=item Review all verbosity options
+
+=item Use iTools::System and iTools::Script::Options
+
+Much to take advantage of in those classes:
+   * tighter GetOpt
+   * built in verbosity tools
+   * many system commands replaced with better error checking
+
+=back
+
+=head1 REPORTING BUGS
+
+Report bugs in the Bug Tracker at iTools' SourceForge project page:
+L<http://sourceforge.net/projects/itools/>
+
+=head1 AUTHOR
+
+Written by Ingmar Ellenberger.
+
+Portions taken from B<Proc::Deamon> written by Earl Hood <earl@earlhood.com>.
+B<start-stop-daemon> written Marek Michalkiewicz used for reference.
+
+=head1 COPYRIGHT
+
+Copyright (c) 2001-2011, Ingmar Ellenberger
+and distributed under The Artistic License.
+For the text the license, see L<http://itools.sourceforge.net/license.psp>
+or read the F<LICENSE> in the root of the iTools distribution.
+
+Some portions taken from B<Proc::Deamon>,
+copyright (C) 1997-1999 Earl Hood <earl@earlhood.com>
+and distributed under The Artistic License.
+
+=head1 DEPENDENCIES
+
+=over 4
+
+=item B<Core Perl Modules:>
+
+Carp(3pm),
+Data::Dumper(3pm),
+Cwd(3pm),
+English(3pm),
+FindBin(3pm),
+POSIX(3pm),
+Time::HiRes(3pm),
+strict(3pm),
+warnings(3pm)
+
+=back
+
+=head1 SEE ALSO
+
+ps(1),
+POSIX(3pm),
+Proc::Daemon(3pm),
+start_stop_daemon(8)
+
+=cut
