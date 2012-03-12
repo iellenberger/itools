@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-$VERSION='1.0';
+$VERSION='1.0.1';
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
 
@@ -490,6 +490,7 @@ usage: $progname [options] OPERATION COMMAND [-- command options]
    -?, --help     display this message
       --man          display the manual page for $progname
    -q, --quiet    do things quietly
+	--version      show version
 
 Operations:
    start     Start a daemon
@@ -752,8 +753,8 @@ Much to take advantage of in those classes:
 
 =head1 REPORTING BUGS
 
-Report bugs in the Bug Tracker at iTools' SourceForge project page:
-L<http://sourceforge.net/projects/itools/>
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
 
 =head1 AUTHOR
 
@@ -764,9 +765,8 @@ B<start-stop-daemon> written Marek Michalkiewicz used for reference.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2011, Ingmar Ellenberger
-and distributed under The Artistic License.
-For the text the license, see L<http://itools.sourceforge.net/license.psp>
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
 or read the F<LICENSE> in the root of the iTools distribution.
 
 Some portions taken from B<Proc::Deamon>,
@@ -775,21 +775,18 @@ and distributed under The Artistic License.
 
 =head1 DEPENDENCIES
 
-=over 4
-
-=item B<Core Perl Modules:>
+=head2 Core Perl Modules
 
 Carp(3pm),
-Data::Dumper(3pm),
 Cwd(3pm),
+Data::Dumper(3pm),
 English(3pm),
 FindBin(3pm),
+Getopt::Long(3pm),
 POSIX(3pm),
 Time::HiRes(3pm),
 strict(3pm),
 warnings(3pm)
-
-=back
 
 =head1 SEE ALSO
 
