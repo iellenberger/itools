@@ -1,0 +1,828 @@
+#!/usr/bin/perl -w
+our $VERSION="0.5.0";
+
+# --- stuff to before any libraries are loaded ---
+BEGIN {
+	# --- do this to ensure we don't go unicode ---
+	if (!defined $ENV{LANG} || $ENV{LANG} ne 'C') {
+		$ENV{LANG}='C';
+		exec $0,@ARGV;
+}	}
+
+use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
+use Cwd;
+use Digest::MD5 qw( md5_hex );
+use Getopt::Long;
+use IO::File;
+use Symbol;
+
+use strict;
+use warnings;
+
+# === Globals ===============================================================
+# --- set static option defaults ---
+my $options = {
+	verbosity => 0,
+	filter    => 'fdl',
+};
+
+# === Main Body of Code =====================================================
+# --- load up all the options ---
+configure($options);
+
+SWITCH: {
+	$options->{generate} && do { generate(); last };
+	$options->{diff}     && do { diff(); last };
+	$options->{list}     && do { list(); last };
+}
+
+exit 0;
+
+# === Functions =============================================================
+# --- generate a manifest ---
+sub generate {
+	# --- predefine/declare a few vars ---
+	my $error = 0;
+	my $lsopts = $options->{recursive} ? 'fdr' : 'fd';
+	my $prepend = $options->{prepend} || '';
+
+	# --- open the outfile if not already opened ---
+	my $outfile = $options->{outfile};
+	if ($outfile && !$options->{filesym}) {
+		$options->{filesym} = new IO::File(($options->{append} ? '>>' : '>') . $outfile);
+		print "writing manifest to $outfile\n"
+			unless $options->{verbosity} < 0;
+	}
+
+	# --- change to the basedir if specified ---
+	my $pushdir = cwd;
+	if ($options->{basedir}) {
+		unless (-d $options->{basedir}) {
+			print STDERR "error: could not change to basedir $options->{basedir}\n";
+			exit 1;
+		}
+		chdir $options->{basedir};
+	}
+
+	# --- loop through each arg as a file/dir name ---
+	foreach my $arg (@ARGV) {
+		# --- ignore specified files that doesn't exist ---
+		next unless -e $arg;
+
+		# --- list file/dir and pricess each result ---
+		my $ls = _ls($arg, $lsopts);
+		foreach my $file (sort keys %$ls) {
+
+			# --- filter on type ---
+			next unless _fileFilter($ls->{$file});
+
+			# --- test for bad symlinks ---
+			if (-l $file) {
+				# --- read link and prepend dir if not absolute ---
+				my $link = readlink($file);
+				$link = _normpath("$file/../$link")
+					unless $link =~ m|^/|;
+			}
+
+			# --- generate the md5sum ---
+			my $sum;
+			my $type = $ls->{$file}->{type}; 
+			if    ($type eq 'dir')  { $sum = '0' x 32 }
+			elsif ($type eq 'link') { $sum = md5_hex readlink($file) }
+			else                    { $sum = md5_hex _readfile($file) }
+
+			# --- add a slash to the end of dirs ---
+			#$file .= '/' if $type eq 'dir' && !($file =~ /t$/);
+
+			# --- generate the manifest line ---
+			_writeline($sum, $type, $ls->{$file}->{mode} & 07777, $prepend . $file);
+		}
+	}
+
+	# --- pop back to the old cwd ---
+	chdir $pushdir;
+
+	exit 1 if $error;
+}
+
+# --- list files in a manifest ---
+sub list {
+	foreach my $file (@ARGV) {
+		my $md5 = _loadFile($file);
+		foreach my $file (sort keys %$md5) {
+			# --- filter on type ---
+			next unless _fileFilter($md5->{$file});
+			_writeline($md5->{$file}->{sum}, $md5->{$file}->{type}, $md5->{$file}->{mode}, $file);
+}	}	}
+
+# --- show diffs between two files ---
+sub diff {
+	# --- error checks ---
+	usage('--diff requires exactly two valid filenames') unless @ARGV == 2;
+
+	# --- load file hashes and trim based on --filter ---
+	my $md5old = _loadFile(shift @ARGV || undef);
+	map { _fileFilter($md5old->{$_}) || delete $md5old->{$_} } keys %$md5old;
+	my $md5new = _loadFile(shift @ARGV || undef);
+	map { _fileFilter($md5new->{$_}) || delete $md5new->{$_} } keys %$md5new;
+
+	# --- create a unique list of all files ---
+	my @allfiles = keys %{{ map { $_, 1 } keys %$md5old, keys %$md5new }};
+
+	# --- loop through all files, generating diffs as found ---
+	foreach my $file (sort @allfiles) {
+
+		# --- removed (only in old) ---
+		if (exists $md5old->{$file} && !exists $md5new->{$file}) {
+			_writeline(@{$md5old->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '-')
+				if $options->{old};
+			next;
+		}
+
+		# --- added (only in new) ---
+		if (!exists $md5old->{$file} && exists $md5new->{$file}) {
+			_writeline(@{$md5new->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '+')
+				if $options->{new};
+			next;
+		}
+
+		# --- unchanged ---
+		if ($md5old->{$file}->{mode} eq $md5new->{$file}->{mode} &&
+		    $md5old->{$file}->{type} eq $md5new->{$file}->{type}  &&
+		    $md5old->{$file}->{sum}  eq $md5new->{$file}->{sum}
+		) {
+			_writeline(@{$md5new->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '=')
+				if $options->{unchanged};
+			next;
+		}
+
+		# --- changed ---
+		if ($options->{changed}) {
+			_writeline(@{$md5old->{$file}}{qw( sum type mode )}, $file, 
+			           $options->{flags} && $options->{extended} ? '<' : 'C');
+			# --- only show the second line if we're displaying flags or extended info ---
+			_writeline(@{$md5new->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '>')
+				if $options->{extended};
+		}
+	}
+}
+
+# === Helper Functions ======================================================
+# --- write a manifest line to STDOUT or --outfile ---
+sub _writeline {
+	my ($sum, $type, $mode, $file, $flag) = @_;
+
+	# --- oft used vars ---
+	my $outfile   = $options->{outfile};
+	my $verbosity = $options->{verbosity};
+
+	# --- generate the line ---
+	my $line = '';
+	$line .= "$flag " if defined $flag;
+	$line .= sprintf "%s %-4s %04o ", $sum, $type, $mode if $options->{extended};
+	$line .= _normpath($file) ."\n";
+
+	if ($options->{outfile}) {
+		# --- open the outfile if not already opened ---
+		unless ($options->{filesym}) {
+			$options->{filesym} = new IO::File(($options->{append} ? '>>' : '>') . $outfile);
+			print "writing manifest to $outfile\n"
+				unless $verbosity < 0;
+		}
+
+		# --- print to file ---
+		$options->{filesym}->print($line);
+	}
+
+	# --- print to stdout ---
+	print $line
+		if (!$outfile && $verbosity >= 0) || ($outfile  && $verbosity >= 1);
+}
+
+# --- load a manifest file into a datastruct ---
+sub _loadFile {
+	my $filename = shift;
+	my $version = 'unknown';
+
+	# --- error checks ---
+	usage("file '$filename' does not exist")   unless -e $filename;
+	usage("'$filename' is not a regular file") unless -f $filename;
+
+	# --- load the file ---
+	my $content = _readfile($filename);
+	my @lines = split /[\n\r]+/, $content;
+
+	# --- generate the hash of names/sums ---
+	my $hash = {};
+	foreach my $line (@lines) {
+		#! TODO: this doesn't folow my own rules!
+		my @fields = split /\s+/, $line;
+		$hash->{$fields[3]} = {
+			sum   => $fields[0],
+			type  => $fields[1],
+			mode  => oct($fields[2]),
+		};
+	}
+	return $hash;
+}
+
+# --- filter a file by type based on options ---
+sub _fileFilter {
+	my ($filehash) = @_;
+	return 1 if $options->{filter} =~ /f/ && $filehash->{type} eq 'file';
+	return 1 if $options->{filter} =~ /d/ && $filehash->{type} eq 'dir';
+	return 1 if $options->{filter} =~ /l/ && $filehash->{type} eq 'link';
+	return 0;
+}
+
+# === Stuff taken from iTools ===============================================
+
+# --- read a file ---
+sub _readfile {
+	my $filename = shift || return undef;             # get filename (required)
+	my $fh = gensym(); open $fh, $filename            # open file or throw error
+		or return undef;
+		# or die "Error opening file '$filename': $!";
+	my $content = ''; { local $/; $content = <$fh>; } # read contents
+	close $fh; ungensym($fh); return $content;        # close it up and return content
+}
+
+# --- generate a dir hash structure ---
+sub _ls {
+	my $path = shift || '.';
+
+	# --- get name and stat for current file/path ---
+	my $stat = _filestat($path);
+	my $list = { $stat->{name} => $stat };
+
+	# --- not a dir? return a single entry ---
+	return $list
+		if $stat->{type} ne 'dir';
+
+	# --- we have a dir, start building the list ---
+	opendir my $dh = gensym(), $path;
+	foreach my $file (readdir $dh) {
+		# --- ignore . and .. ---
+		next if $file eq '.' || $file eq '..';
+
+		# --- get stats for file ---
+		my $stat = _filestat("$path/$file");
+		$list->{$stat->{name}} = $stat;
+
+		# --- recurse subdirs ---
+		if ($stat->{type} eq 'dir' && $options->{recursive}) {
+			my $innerls = _ls($stat->{name});
+			while (my ($key, $value) = each %$innerls) {
+				$list->{$key} = $value;
+			}
+		}
+	}
+	closedir $dh; ungensym $dh;
+
+	# --- remove './' if it exists ---
+	delete $list->{'.'};
+
+	return $list;
+}
+
+# --- generate a hash from 'stat' ---
+sub _filestat {
+	my ($file, $stat) = (shift, {});
+	return unless $file; # return if no file
+
+	# --- get keys and values ---
+	my @statkey = qw( dev inode mode numlink uid gid rdev size atime mtime ctime blocksize blocks );
+	my @statval = -l $file ? lstat $file : stat $file;
+
+	# --- generate the stat hash ---
+	for (my $ii = 0; $ii < @statkey; $ii++) {
+		$stat->{$statkey[$ii]} = $statval[$ii];
+	}
+
+	# --- set the file type ---
+	if (-l $file && !$options->{follow}) { $stat->{type} = 'link' }
+	elsif (-d $file)                     { $stat->{type} = 'dir' }
+	else                                 { $stat->{type} = 'file' }
+
+	# --- set the filename ---
+	$stat->{name} = _normpath($file);
+	#$stat->{name} .= '/' if $stat->{type} eq 'dir';
+
+	# --- set the link path if we have one ---
+	if (-l $file) {
+		$stat->{'link'} = readlink $file;
+
+		# --- if the link is broken, mark it as a link regardless of the 'follow' flag ---
+		$stat->{type} = 'link' unless -e $stat->{'link'};
+	}
+
+	# --- return stat hash/hashref ---
+	return wantarray ? %$stat : $stat;
+}
+
+# --- normalize a filesystem path ---
+sub _normpath {
+	my $inpath = shift;
+
+	# --- save whether this is a relative or absolute path ---
+	my $inabs = $inpath =~ m|^/|;
+
+	# --- tear apart the path and process each segment ---
+	my @parts;
+	foreach my $segment (split '/', $inpath) {
+		# --- toss away single dots and double slashes ---
+		next if $segment eq '' || $segment eq '.';
+		
+		# --- process double dots ---
+		if ($segment eq '..') {
+			if (@parts == 0) {
+				# --- add '..' at the beginning of a relative path ---
+				push @parts, '..' unless $inabs
+			} else {
+				# --- push '..' if prev segment also a '..' ---
+				if ($parts[-1] eq '..') { push @parts, '..' }
+				# --- else remove prev segment ---
+				else { pop @parts }
+			}
+		} else {
+			# --- if we got here, we have a valid segment ---
+			push @parts, $segment;
+		}
+	}
+
+	# --- reassemble the path ---
+	my $path = join '/', @parts;
+
+	# --- if path is absolute, add a prefix slash ---
+	$path = "/$path" if $inpath =~ m|^/|;
+	# --- use '.' if path is empty ---
+	$path = '.' if $path eq '';
+
+	return $path;
+}
+
+# === Configuration =========================================================
+sub configure {
+	usage() unless @ARGV; # force help message if no arguments
+
+	# --- parse the command line options ---
+	my $options = shift || {};
+	Getopt::Long::Configure('bundling');
+	GetOptions($options,
+		# --- core parameters ---
+		'help|?+', 'man+',  # usage and man pages
+		'quiet|q+',         # do things quietly
+		'verbose|v+',       # do things loudly
+		'verbosity=n',      # set an explicit verbosity level
+		'version+',         # show the version
+
+		# --- general options ---
+		'filter|F=s',       # filter output by (f)iles, (d)irs and (l)inks
+
+		# --- generate options ---
+		'generate|g+',      # generate a manifest
+		'recursive|r+',     # do things recursively
+		'follow|L+',        # follow symlinks
+		'basedir|base|b=s', # base dir for manifest
+		'prefix|p=s',       # add prefix files
+		'outfile|O=s',      # send output to a file
+			'append|a+',     # append to --file
+
+		# --- list options ---
+		'list|l+',          # list the files in a manifest
+
+		# --- list and diff options ---
+		'extended|x+',      # show extended info
+
+		# --- diff options ---
+		'diff|d+',          # generate diffs
+		'old|o+',           # show old files
+		'changed|c+',       # show changed files
+		'unchanged|u+',     # show unchanged files
+		'new|n+',           # show new files
+		'all+',             # show all files
+		'flags|f+',         # show -/</>/C/=/+ flags
+	);
+
+	# --- show usage, man page or version ---
+	$options->{help}    && do { usage() };
+	$options->{man}     && do { exec "perldoc $0" };
+	$options->{version} && do { print "$::VERSION\n"; exit 0 };
+
+	# --- verbosity ---
+	usage("can't be quiet and verbose at the same time")
+		if $options->{quiet} && $options->{verbose};
+	$options->{verbosity} = ($options->{verbose} || 0) - ($options->{quiet} || 0);
+	delete @{$options}{qw(quiet verbose)};
+
+	# --- default: show old, changed and new ---
+	$options->{old} = $options->{changed} = $options->{new} = 1
+		unless $options->{old} || $options->{changed} || $options->{unchanged} || $options->{new};
+	# --- --all overrides the other options ---
+	$options->{old} = $options->{changed} = $options->{unchanged} = $options->{new} = 1
+		if $options->{all};
+
+	# --- force extended flag if we're in generate mode ---
+	$options->{extended} = 1 if $options->{generate};
+
+	return $options;
+}
+
+# === Usage and Error Message ===============================================
+sub usage {
+	my $error = shift;
+	my $progname = ($0 =~ /([^\/]*)$/)[0] || $0;
+
+	print STDERR qq[\nerror: $error\n] if $error;
+	print STDERR qq[
+usage: $progname COMMAND [options] FILE [ FILE ... ]
+
+   -?, --help          display this message
+      --man               display the manual page for $progname
+   -q, --quiet         do things quietly
+   -v, --verbose       do things loudly
+   --version           show version
+
+Commands (exactly one required):
+   -g, --generate      generate manifest
+   -d, --diff          compare two manifests
+   -l, --list          list files in manifest
+
+General Options:
+   -F, --filter TYPE   show/manifest only (f)iles, (d)irs, (l)inks
+
+Generate Options:
+   -r, --recursive     recurse subdirectories
+   -L, --follow        follow symlinks
+   -b, --basedir DIR   generate manifest starting ar DIR
+   -p, --prefix PATH   prepend PATH to all filenames
+   -O, --outfile FILE  output file
+      -a, --append     append to --output file
+
+Diff Options:
+   -o, --old           show files only in OLD (1st file)
+   -c, --changed       show changed files
+   -u, --unchanged     show unchanged files
+   -n, --new           show files in NEW (2nd file)
+   --all               show all files (default is -ocn)
+   -f, --flags         show change flags: - < > = +
+
+List and Diff Options:
+   -x, --extended      show md5sum, file type and permissions
+
+iTools manifest, version $::VERSION
+
+];
+	exit 1;
+}
+
+=head1 NAME
+
+manifest - iTools manifest tool
+
+=head1 SYNOPSIS
+
+ manifest {-?|--man}
+ manifest --generate [-rL] [-F TYPE] [-b DIR] [-p PATH]
+          [-O MANIFEST [-a]] FILE|PATH [...]
+ manifest --list [-x] [-F TYPE] MANIFEST [...]
+ manifest --diff [-ocunx] [-F TYPE] MANIFEST.OLD MANIFEST.NEW
+
+=head1 DESCRIPTION
+
+B<manifest> is a tool for generating, listing and diff'ing filesystem manifests.
+
+
+=head2 Generating Manifests
+
+A common form for generating manifests is:
+
+   manifest -gr FILE|DIR ...
+
+This command displays a manifest generated from all files and directories given.
+
+By default, B<--generate> does not recurse subdirectories.
+Use the B<-r> option to to change this behavior.
+
+When a symlink is found, B<manifest> uses the destination's path/file to generate the MD5Sum.
+With the B<-L> flag, all symlinks are followed and are listed in the
+manifest as 'file' or 'dir' instead of 'link'.
+Symlink'ed directories are also traversed if the flag pair B<-Lr> is given.
+Broken links are treated as links.
+
+B<-O MANIFEST> sends the manifest to a file instead of STDOUT.
+If you also want to see the manifest on your screen, increase the verbosity with B<-v>.
+You can append to an existing manifest with the B<-a> flag.
+
+By default, all paths in manifests are generated relative to the current directory.
+To create a manifest based in another directory, use the B<-b DIR> option.
+You can also prepend an arbitrary path (or any string for that matter) to each filename
+using the B<-p PATH> option.
+
+=head2 Listing The Contents of Manifests
+
+If you invoke the command:
+
+   manifest --list foo.mf
+
+all of the files listed in F<foo.mf> are sent to STDOUT.
+
+Alternately, for can list all files with extended information (MD5Sum, Type and Mode)
+in multiple manifests that are only links with the following command:
+
+   manifest --list --extended --links foo.mf bar.mf
+
+=head2 Determining Differences Between Manifests
+
+The simple form of the B<--diff> option is:
+
+   manifest --diff foo.mf bar.mf
+
+You can also filter the B<--diff> results by file type and whether files have changed.
+See the L<Diff Options> section below for details.
+
+=head1 COMMANDS
+
+There are three general commands this tool understands:
+
+=over 4
+
+=item B<-g>, B<--generate> FILE [...]
+
+Generate a manifest for the file(s) listed on the command line.
+
+=item B<-d>, B<--diff> MANIFEST.OLD MANIFEST.NEW
+
+Generate a list of files that differ based on two manifests.
+
+=item B<-l>, B<--list> MANIFEST [...]
+
+List the files or contents of one or more manifest.
+
+=back
+
+=head1 OPTIONS
+
+=head2 Generate Options
+
+=over 4
+
+=item B<-r>, B<--recursive>
+
+Recurse directories when generating a manifest.
+Symlinks to directories are also be recursed if the B<--follow> flag is given.
+
+=item B<-L>, B<--follow>
+
+By default, symlinks are preserved as 'link' in the manifest.
+The manifest checksum is generated from the link's destination path/filename.
+
+The B<--follow> flag changes this behavior by attempting to follow the symlink to its destination.
+If the symlink points to a file, it is listed as a 'file' and the checksum is generated from its contents.
+If the symlink points to a directory, it is listed as a 'dir' and recursed if the B<--recursive> flag is given.
+If the symlink is broken, it is treated as though the B<--follow> flag had not been specified.
+
+=item B<-b>, B<--basedir> DIR
+
+By default, all paths in manifests are generated relative to the current directory.
+B<--basedir> effectively does a 'chdir' to DIR before generating the manifest.
+
+=item B<-p>, B<--prefix> PATH
+
+This option allows you preprepend an arbitrary string (usually a path) to all files in the manifest.
+
+=item B<-O>, B<--outfile> MANIFEST
+
+=item B<-a>, B<--append>
+
+By default, the generated manifest is displayed on the screen.
+B<--outfile> redirects this output to a file, creating a new file or overwriting an existing file as necessary.
+The B<--append> flag allows you to append to an existing manifest instead.
+
+If you still want to see the manifest on the screen when using B<--outfile>,
+use B<-v> to increase the verbosity.
+
+=back
+
+=head2 Diff Options
+
+=over 4
+
+=item B<-o>, B<--old>; B<-c>, B<--changed>; B<-u>, B<--unchanged>; B<-n>, B<--new>; B<--all>
+
+Filter results based on whether and how the file has changed:
+
+   --old        show files that are in OLD but not in NEW
+   --changed    show files that have changed between OLD and NEW
+   --unchanged  show files that have changed between OLD and NEW
+   --new        show files that are in NEW but not in OLD
+   --all        all of the above
+
+If none of these flags are given, B<-ocn> is presumed.
+
+=item B<-f>, B<--flags>
+
+Display flags before each line to indicate if and how the file has changed:
+
+   -   the file is in OLD but not in NEW
+   C   file has changed (without -x)
+   <   file has changed, OLD values (with -x)
+   >   file has changed, NEW values (with -x)
+   =   file is unchanged
+   +   the file is in NEW but not in OLD
+
+=back
+
+=head2 List and Diff Options
+
+=over 4
+
+=item B<-x>, B<--extended>
+
+Show extended information (MD5Sum, Type and Mode) before the file name.
+
+=back
+
+=head2 General Options
+
+=over 4
+
+=item B<-F>, B<--filter> FLAGS
+
+Filters results based on file type.
+Use any combination of the following single-character values to specify the type(s):
+
+   d  dir
+   f  file
+   l  symlink
+
+If none of these flags are given, all are presumed.
+
+=item B<-?>, B<--help>; B<--man>
+
+Display a short usage message, or the full manual page (sic).
+
+=item B<-q>, B<--quiet>; B<-v>[B<vvv>], B<--verbose>, B<--verbosity> LEVEL
+
+Do things quietly or loudly.
+There are several incremental levels of verbosity (LEVEL in brackets) :
+
+    -qq    (-2) suppress all messages
+    -q     (-1) only show error messages
+           (0)  normal output
+    -v     (1)  show extended progress
+    -vv    (2)  show detailed progress
+    -vvv   (3)  show system and extended internal commands
+    -vvvv  (4)  full debugging output
+
+=item B<--version>
+
+Show the tool's version number.
+
+=back
+
+=head1 OUTPUT FORMAT
+
+The output of this tool is intentionally designed be used by other programs.
+For future compatibility, use the following rules when parsing files and output.
+
+=head2 General Rules
+
+An exit status of 0 indicates success; exit >= 1 indicates warning or error (always treat it as an error).
+All rules apply when output sent to a file via the B<--outfile> flag.
+Rules only apply to STDOUT when verbosity is exactly 0 (i.e. no B<-qv> flags are used).
+
+=head2 Fields
+
+This tool outputs up to 5 fields depending on the function being executed and flags passed.
+All fields are delimited by one or more character of whitespace.
+
+A simple example of these fields are as follows:
+
+   MD5Sum                          Type Mode Filename
+   -------------------------------- ---- ---- ----------------
+   00000000000000000000000000000000 dir  0755 foo/
+   4d40a8a9984cf47c8b512e32d3f46afa file 0644 foo/bar.file
+   d8db4cc080cfe6c8f871b49b07eb7839 link 0400 foo/bar.link
+
+External processors should follow these guidelines strictly.
+For future compatibility, any results or values that do not fall within the guidelines
+should be ignored or rejected.
+
+The following table shows which fields are generated depending on command executed
+and flags passed to the command:
+
+             Flag MD5Sum Type Mode Filename
+             ---- ------ ---- ---- --------
+   generate          x     x    x      x
+   diff                                x
+   diff -f     x                       x
+   diff -x           x     x    x      x
+   diff -fx    x     x     x    x      x
+   list                                x
+   list -x           x     x    x      x
+
+=over 4
+
+=item Flag
+
+A single character flag that indicates if and how a file has changed.
+
+   -   the file is in OLD but not in NEW
+   C   file has changed (without -x)
+   <   file has changed, OLD values (with -x)
+   >   file has changed, NEW values (with -x)
+   =   file is unchanged
+   +   the file is in NEW but not in OLD
+
+=item MD5Sum
+
+A 32 character hexadecimal MD5Sum of the file contents or the destination path of a symlink.
+For directories, this value is a series of 32 zeros.
+
+=item Type
+
+A text field describing the file type.
+At present three types of files are implemented: 'file', 'dir' and 'link'.
+
+=item Mode
+
+A 4 digit octal mode specifying file permissions.
+See chmod(1) for details on these modes.
+
+=item Filename
+
+The path and/or name of the file, link or directory.
+All whitespace within the filename is significant.
+All whitespace at the end of a line should be ignored.
+
+=back
+
+The following regex can be used to parse manifest lines
+(using Perl's extended format regex for commentary - see perlre(1) for details):
+
+   /^                        # beginning of line
+      ([+C<>=-])        \s+  # Flag  (+ space delimiter)
+      ([A-Fa-f0-9]{32}) \s+  # Sum   (+ space delimiter)
+      (file|dir|link)   \s+  # Type  (+ space delimiter)
+      ([0-7]{4})        \s+  # Mode  (+ space delimiter)
+      (.*?)             \s*  # Name  (+ extra whitespace)
+   $/x                       # end of line
+
+Adjust your regex by remiving lines depending on the output you are expecting.
+
+=head1 KNOWN ISSUES AND BUGS
+
+=over 4
+
+=item B<I'm not using my own regex rules!>
+
+Dammit!
+
+=back
+
+=head1 TODO
+
+=over 4
+
+=item B<Additional Inout and Output Formats>
+
+Consider other formats that may be even more parsable: Data::Dumper, YAML, etc.
+
+=back
+
+=head1 REPORTING BUGS
+
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
+
+=head1 AUTHOR
+
+Written by Ingmar Ellenberger.
+
+=head1 COPYRIGHT
+
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
+or read the F<LICENSE> in the root of the iTools distribution.
+
+=head1 DEPENDENCIES
+
+=head2 Core Perl Modules
+
+Data::Dumper(3pm),
+Cwd(3pm),
+Digest::MD5(3pm),
+Getopt::Long(3pm),
+IO::File(3pm),
+Symbol(3pm),
+strict(3pm),
+warnings(3pm)
+
+=head1 SEE ALSO
+
+chmod(1),
+md5sum(1),
+perlre(1)
+
+=cut
