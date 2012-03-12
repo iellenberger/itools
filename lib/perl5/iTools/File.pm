@@ -1,6 +1,6 @@
 package iTools::File;
 use base Exporter;
-$VERSION=0.3;
+$VERSION="1.0.0";
 
 @EXPORT_OK = qw( readfile writefile );
 
@@ -36,7 +36,8 @@ sub readfile {
 sub writefile {
 	# --- get filename and content ---
 	my ($filename, $content) = (shift, shift || '');
-	return _die('writefile: no filename given') unless $filename;
+	return _die('writefile: no filename given')
+		unless $filename;
 
 	# --- parse mode from filename ---
 	my $mode = '>'; if ($filename =~ /^(>+)(.*)$/) { ($mode, $filename) = ($1, $2) }
