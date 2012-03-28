@@ -45,6 +45,7 @@ sub generate {
 	my $error = 0;
 	my $lsopts = $options->{recursive} ? 'fdr' : 'fd';
 	my $prepend = $options->{prepend} || '';
+	$options->{extended} = 1;   # force --extended for generate
 
 	# --- open the outfile if not already opened ---
 	my $outfile = $options->{outfile};
@@ -131,38 +132,44 @@ sub diff {
 
 	# --- loop through all files, generating diffs as found ---
 	foreach my $file (sort @allfiles) {
+		# --- shorten a few vars ---
+		my $old = $md5old->{$file};
+		my $new = $md5new->{$file};
 
 		# --- removed (only in old) ---
-		if (exists $md5old->{$file} && !exists $md5new->{$file}) {
-			_writeline(@{$md5old->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '-')
+		if (defined $old && !defined $new) {
+			_writeline(@{$old}{qw( sum type mode )}, $file, $options->{flags} && '-')
 				if $options->{old};
 			next;
 		}
 
 		# --- added (only in new) ---
-		if (!exists $md5old->{$file} && exists $md5new->{$file}) {
-			_writeline(@{$md5new->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '+')
+		if (!defined $old && defined $new) {
+			_writeline(@{$new}{qw( sum type mode )}, $file, $options->{flags} && '+')
 				if $options->{new};
 			next;
 		}
 
 		# --- unchanged ---
-		if ($md5old->{$file}->{mode} eq $md5new->{$file}->{mode} &&
-		    $md5old->{$file}->{type} eq $md5new->{$file}->{type}  &&
-		    $md5old->{$file}->{sum}  eq $md5new->{$file}->{sum}
+		if ($old->{mode} eq $new->{mode} &&
+		    $old->{type} eq $new->{type} &&
+		    $old->{sum}  eq $new->{sum}
 		) {
-			_writeline(@{$md5new->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '=')
+			_writeline(@{$new}{qw( sum type mode )}, $file, $options->{flags} && '=')
 				if $options->{unchanged};
 			next;
 		}
 
 		# --- changed ---
 		if ($options->{changed}) {
-			_writeline(@{$md5old->{$file}}{qw( sum type mode )}, $file, 
-			           $options->{flags} && $options->{extended} ? '<' : 'C');
+			_writeline(
+				@{$old}{qw( sum type mode )},
+				$file,
+				$options->{flags} ? ($options->{extended} ? '<' : 'C') : undef,
+			);
 			# --- only show the second line if we're displaying flags or extended info ---
-			_writeline(@{$md5new->{$file}}{qw( sum type mode )}, $file, $options->{flags} && '>')
-				if $options->{extended};
+			_writeline(@{$new}{qw( sum type mode )}, $file, '>')
+				if $options->{extended} && $options->{flags};
 		}
 	}
 }
@@ -422,9 +429,6 @@ sub configure {
 	$options->{old} = $options->{changed} = $options->{unchanged} = $options->{new} = 1
 		if $options->{all};
 
-	# --- force extended flag if we're in generate mode ---
-	$options->{extended} = 1 if $options->{generate};
-
 	return $options;
 }
 
@@ -495,7 +499,7 @@ B<manifest> is a tool for generating, listing and diff'ing filesystem manifests.
 
 =head2 Generating Manifests
 
-A common form for generating manifests is:
+The common form for generating manifests is:
 
    manifest -gr FILE|DIR ...
 
@@ -640,6 +644,7 @@ Display flags before each line to indicate if and how the file has changed:
 =item B<-x>, B<--extended>
 
 Show extended information (MD5Sum, Type and Mode) before the file name.
+If used in a B<--diff> operation without the B<--flags> option, the MD5Sum of the OLD file is given.
 
 =back
 
@@ -699,7 +704,7 @@ All fields are delimited by one or more character of whitespace.
 
 A simple example of these fields are as follows:
 
-   MD5Sum                          Type Mode Filename
+   MD5Sum                           Type Mode Filename
    -------------------------------- ---- ---- ----------------
    00000000000000000000000000000000 dir  0755 foo/
    4d40a8a9984cf47c8b512e32d3f46afa file 0644 foo/bar.file
@@ -717,10 +722,12 @@ and flags passed to the command:
    generate          x     x    x      x
    diff                                x
    diff -f     x                       x
-   diff -x           x     x    x      x
+   diff -x          OLD    x    x      x
    diff -fx    x     x     x    x      x
    list                                x
    list -x           x     x    x      x
+
+OLD = only the MD5Sum of the 1st differentiated file is shown.
 
 =over 4
 
