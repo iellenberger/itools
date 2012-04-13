@@ -1,5 +1,6 @@
 package iTools::Script::Options;
 use base qw( iTools::Core::Accessor );
+$VERSION = 0.1;
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
 
@@ -81,7 +82,7 @@ sub load { $INSTANCE || shift->new(@_) }
 sub options     { shift->_varArray(_options => @_) }
 sub verbosity   {
 	my $self = shift;
-	iTools::System::verbosity(@_) if @_;
+	iTools::Verbosity::verbosity(@_) if @_;
 	return $self->_varDefault(0, verbosity => @_);
 }
 # --- verbosity level explicitly set on command line ---
