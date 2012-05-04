@@ -158,7 +158,7 @@ sub parse {
 	$self->cliVerbosity($self->verbosity)
 		if defined $self->{quiet} || defined $self->{verbose} || defined $self->{verbosity};
 	delete @{$self}{qw(quiet verbose)};
-	iTools::System::verbosity($self->{verbosity});
+	iTools::Verbosity::verbosity($self->{verbosity});
 
 	# --- colored output ---
 	iTools::Term::ANSI::colored($self->{color});
