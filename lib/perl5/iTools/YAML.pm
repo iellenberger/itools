@@ -1,6 +1,8 @@
 package iTools::YAML;
-use base qw( iTools::Core::Accessor HashRef::Maskable );
-$VERSION = 0.1;
+use base qw( Exporter iTools::Core::Accessor HashRef::Maskable );
+$VERSION = 0.2;
+
+@EXPORT_OK = qw( hash2yaml );
 
 use Carp qw( confess );
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging
@@ -33,6 +35,13 @@ sub new {
 	}
 
 	return $self;
+}
+
+# === Exports ===============================================================
+sub hash2yaml {
+	my $hash = shift;
+	my $yaml = new iTools::YAML(Hash => $hash);
+	return $yaml->render;
 }
 
 # === Accessors =============================================================
@@ -187,13 +196,13 @@ sub hash {
 	# --- predeclare vars ---
 	my $hash;
 
-	# --- got a hashref ---
-	if (ref $_[0] eq 'HASH') { $hash = dclone(shift) }
+	# --- got a ref ---
+	if (ref $_[0]) { $hash = dclone(shift) }
 	# --- got a real hash ---
 	elsif (not @_ % 2)     { $hash = dclone({@_}) }
 	# --- invalid parameters ---
 	else {
-		confess __PACKAGE__ ."->hash() requires a hash of hashref as a parameter(s)\n".
+		confess __PACKAGE__ ."->hash() requires a hash or ref as a parameter(s)\n".
 			"   instead I got\n\n". Data::Dumper->Dump([\@_], ['@ARG']) ."\n  ";
 	}
 
@@ -245,7 +254,7 @@ iTools::YAML - OO interface for loosely parsing YAML
 
 =head1 SYNOPSIS
 
-  use iTools::YAML;
+  use iTools::YAML qw( hash2yaml );
   my $yaml = new iTools::YAML;
 
   $yaml->read('myfile.yaml');
@@ -260,6 +269,8 @@ iTools::YAML - OO interface for loosely parsing YAML
   $yaml->parse($text);
   delete $yaml->{myname};
   print $yaml->render;
+
+  print hash2yaml($hashref);
 
 =head1 DESCRIPTION
 
@@ -387,6 +398,17 @@ Returns a deep copy of $obj as a new, untied, unblessed hash.
 
 Clears $obj.
 Returns $obj.
+
+=back
+
+=head1 EXPORTS
+
+=over 4
+
+=item hash2yaml(I<DATA>)
+
+Converts I<DATA> into YAML and returns the content.
+A nice substitute for Data::Dumper(3pm).
 
 =back
 
