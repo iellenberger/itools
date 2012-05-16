@@ -6,7 +6,7 @@ $VERSION = "0.01";
 	fatal nofatal
 	die warn
 	system command
-	mkdir chdir mkcd symlink
+	mkdir chdir mkcd symlink pushdir popdir
 	rename link unlink
 
 	colored
@@ -14,6 +14,7 @@ $VERSION = "0.01";
 );
 
 use Carp qw( cluck confess );
+use Cwd;
 use iTools::Term::ANSI qw( color );
 use iTools::Verbosity qw( vpush vpop );
 use IPC::Open3;
@@ -27,8 +28,8 @@ our $CONFIG = { };
 
 # === Deprecated Calls ======================================================
 # --- the following calls will be removed in the next version of iTools::System ---
-sub verbosity { iTools::Verbosity::verbosity(@_) }
 sub vbase     { _varDefault(2, 'vbase', @_) }
+sub verbosity { iTools::Verbosity::verbosity(@_) }
 sub vnprint   { iTools::Verbosity::vprint(@_) }
 sub vnprintf  { iTools::Verbosity::vprintf(@_) }
 sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift, @_) }
@@ -42,7 +43,7 @@ sub vtmp(&$) {
 sub logfile { iTools::Verbosity::vlogfile(@_) }
 sub logonly {
 	iTools::Verbosity::vloglevel(iTools::Verbosity::verbosity());
-	vpush -3; 
+	vpush -3;
 }
 
 sub colored   { iTools::Term::ANSI::colored(@_) }
@@ -152,7 +153,7 @@ sub command($;%) {
 	}
 
 	# --- build the %extinfo hash ---
-	local $/; 
+	local $/;
 	%extinfo = (
 		stdout  => <$out> || '',
 		stderr  => <$err> || '',
@@ -173,6 +174,8 @@ sub mkdir {
 	# --- loop through params (paths) and create the dirs ---
 	PATH: foreach my $path (@_) {
 
+		vprint vbase(), color('c', "mkdir: ") ."$path\n";
+
 		# --- make a directory list ---
 		my @dirs = split /\//, $path;                                  # split path into components
 		if ($path =~ /^\//) { shift @dirs; $dirs[0] = '/'. $dirs[0]; } # correction for blank entry if '^/'
@@ -184,7 +187,7 @@ sub mkdir {
 
 			# --- skip dir if it already exists ---
 			if (-d $path) {
-				vprint vbase(), color('c', "mkdir: ") . $path . color('y', " (already exists)") ."\n";
+				vprint vbase() + 1, "mkdir $path". color('y', " (already exists)") ."\n";
 				next;
 			}
 
@@ -196,7 +199,7 @@ sub mkdir {
 				$goodpath = $retval = 0;
 				last;
 			}
-			vprint vbase(), color('c', "mkdir: ") ."$path\n";
+			vprint vbase() + 1, "mkdir $path\n";
 			mkdir $path, 0755 or do {
 				iTools::System::die("error creating directory '$path': $!");
 				$goodpath = $retval = 0;
@@ -217,12 +220,26 @@ sub mkdir {
 sub chdir {
 	my $path = shift;
 	vprint vbase(), color('c', "chdir: ") ."$path\n";
-	chdir $path or return iTools::System::die("can't chdir to '$path': $!") && return undef;
+	chdir $path or iTools::System::die("can't chdir to '$path': $!") && return undef;
 	return $path;
 }
 
 # --- mkdir and chdir in one ---
 sub mkcd { iTools::System::mkdir($_[0]); iTools::System::chdir($_[0]) }
+
+# --- push and pop to a directory stack ---
+sub pushdir {
+	$CONFIG->{dirstack} ||= [];
+	unshift @{$CONFIG->{dirstack}}, cwd;
+	return iTools::System::chdir($_[0])
+}
+sub popdir {
+	$CONFIG->{dirstack} ||= [];
+	my $path = shift @{$CONFIG->{dirstack}};
+	if (defined $path) { iTools::System::chdir($path) }
+	else               { iTools::System::warn("can't popdir, directory stack is empty") }
+	return $path;
+}
 
 # --- create symlink, deleting old one if necessary ---
 sub symlink {
@@ -331,7 +348,7 @@ iTools::System - system tool replacements and additions
     fatal nofatal
     die warn
     system command
-    mkdir chdir mkcd
+    mkdir mkcd chdir pushdir popdir
     symlink rename link unlink
  );
 
@@ -467,6 +484,15 @@ The hash will contain the following information:
 
 Creates the directory PATH and then changes the working directory to PATH.
 Same as, "mkdir(PATH); chdir(PATH)"
+
+=item B<pushdir> PATH
+
+=item B<popdir>
+
+pushdir() does a chdir() and saves the old directory.
+popdir() returns you to the directory you were in bbe fore the last popdir.
+
+These functions are nestable.
 
 =back
 
