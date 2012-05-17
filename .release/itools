@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# --- expect exactly one argument ---
+if [ $# -ne 1 ]; then echo "Usage: `basename $0` VERSION"; exit; fi
+
+# --- set a few vars ---
+PACKAGE=itools
+VERSION=$1
+PV=$PACKAGE-$VERSION
+
+ROOTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )"/.. && pwd )"
+TMPDIR=$ROOTDIR/tmp/release-$PACKAGE-$$
+RELEASEDIR=$ROOTDIR/var/releases
+TARBALL=$RELEASEDIR/$PACKAGE-$VERSION.tgz
+
+# --- list of files/dirs to be included in the release ---
+FILES="
+	LICENSE
+	bin/daemon
+	bin/manifest
+	lib/perl5/iTools/*.pm
+	lib/perl5/iTools/*/*.pm
+"
+
+# --- copy files ---
+cd $ROOTDIR
+mkdir -p $TMPDIR/$PV
+tar c $FILES | tar x -C $TMPDIR/$PV
+
+# --- remove files that we don't want ---
+cd $TMPDIR/$PV
+rm -rf lib/perl5/iTools/FileSystem.pm lib/perl5/iTools/Proc
+
+# --- create the tarball ---
+cd $TMPDIR
+mkdir -p $RELEASEDIR
+tar czf $TARBALL $PV
+rm -r $TMPDIR
+
+echo "Tarball created: $TARBALL"
