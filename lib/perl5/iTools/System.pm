@@ -2,16 +2,18 @@ package iTools::System;
 use base Exporter;
 $VERSION = "0.01";
 
-@EXPORT_OK = qw(
+@EXPORT_OK = (qw(
 	fatal nofatal
 	die warn
 	system command
 	mkdir chdir mkcd symlink pushdir popdir
 	rename link unlink
-
+),
+	#! it's getting close to the time to deprecate these:
+qw(
 	colored
 	indent verbosity vbase vprint vprintf vnprint vnprintf vtmp
-);
+));
 
 use Carp qw( cluck confess );
 use Cwd;
@@ -133,16 +135,17 @@ sub command($;%) {
 
 	# --- use open3 to run command and capture stdout and stderr ---
 	my ($out, $err) = (gensym, gensym);
+	vprint vbase(), color('c', "executing: ") ."$cmd\n";
 	my $pid = open3 undef, $out, $err, $cmd;
 
 	# --- wait for process to complete and capture return status ---
 	waitpid $pid, 0;
 	my $stat = $? >> 8;
+	my $message;
 
-	my $message = 'child executed successfully';
 	# --- error executing command ---
 	if ($stat) {
-		$message = "the command did not succesfully execute";
+		$message = "the command did not succesfully execute:\n" . indent() ."$cmd\n";
 		if ($? == -1) {
 			$message .= "failed to execute: $!";
 		} elsif ($? & 127) {
@@ -150,6 +153,12 @@ sub command($;%) {
 		} else {
 			$message .= "child exited with value ". ($? >> 8);
 		}
+		iTools::System::die "$message";
+	}
+	# --- command executed successfully ---
+	else {
+		$message = 'command completed successfully';
+		vprint vbase() + 1, color('g', "$message") ."\n";
 	}
 
 	# --- build the %extinfo hash ---
@@ -229,9 +238,10 @@ sub mkcd { iTools::System::mkdir($_[0]); iTools::System::chdir($_[0]) }
 
 # --- push and pop to a directory stack ---
 sub pushdir {
+	my $dir = shift;
 	$CONFIG->{dirstack} ||= [];
 	unshift @{$CONFIG->{dirstack}}, cwd;
-	return iTools::System::chdir($_[0])
+	return defined $dir ? iTools::System::chdir($dir) : cwd;
 }
 sub popdir {
 	$CONFIG->{dirstack} ||= [];
@@ -485,14 +495,14 @@ The hash will contain the following information:
 Creates the directory PATH and then changes the working directory to PATH.
 Same as, "mkdir(PATH); chdir(PATH)"
 
-=item B<pushdir> PATH
+=item B<pushdir> [PATH]
 
 =item B<popdir>
 
-pushdir() does a chdir() and saves the old directory.
-popdir() returns you to the directory you were in bbe fore the last popdir.
+pushdir() does a chdir() and saves the old directory on a stack.
+If no path is given, it simply pushes the current directory to the stack.
 
-These functions are nestable.
+popdir() retrieves the last directory pushed onto the stack and returns you to it.
 
 =back
 
