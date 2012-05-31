@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-our $VERSION="0.5.0";
+our $VERSION="0.6.0";
 
 # --- stuff to before any libraries are loaded ---
 BEGIN {
@@ -9,7 +9,7 @@ BEGIN {
 		exec $0,@ARGV;
 }	}
 
-use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
+use Data::Dumper; $Data::Dumper::Indent=0; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1;
 use Cwd;
 use Digest::MD5 qw( md5_hex );
 use Getopt::Long;
@@ -19,17 +19,13 @@ use Symbol;
 use strict;
 use warnings;
 
-# === Globals ===============================================================
-# --- set static option defaults ---
-my $options = {
+# === CLI Options ===========================================================
+my $options = configure({
 	verbosity => 0,
 	filter    => 'fdl',
-};
+});
 
 # === Main Body of Code =====================================================
-# --- load up all the options ---
-configure($options);
-
 SWITCH: {
 	$options->{generate} && do { generate(); last };
 	$options->{diff}     && do { diff(); last };
@@ -87,7 +83,7 @@ sub generate {
 
 			# --- generate the md5sum ---
 			my $sum;
-			my $type = $ls->{$file}->{type}; 
+			my $type = $ls->{$file}->{type};
 			if    ($type eq 'dir')  { $sum = '0' x 32 }
 			elsif ($type eq 'link') { $sum = md5_hex readlink($file) }
 			else                    { $sum = md5_hex _readfile($file) }
@@ -96,7 +92,7 @@ sub generate {
 			#$file .= '/' if $type eq 'dir' && !($file =~ /t$/);
 
 			# --- generate the manifest line ---
-			_writeline($sum, $type, $ls->{$file}->{mode} & 07777, $prepend . $file);
+			_writeline($sum, $type, $ls->{$file}, $prepend . $file);
 		}
 	}
 
@@ -113,7 +109,7 @@ sub list {
 		foreach my $file (sort keys %$md5) {
 			# --- filter on type ---
 			next unless _fileFilter($md5->{$file});
-			_writeline($md5->{$file}->{sum}, $md5->{$file}->{type}, $md5->{$file}->{mode}, $file);
+			_writeline(@{$md5->{$file}}{qw( sum type mode uid gid )}, $file);
 }	}	}
 
 # --- show diffs between two files ---
@@ -138,14 +134,14 @@ sub diff {
 
 		# --- removed (only in old) ---
 		if (defined $old && !defined $new) {
-			_writeline(@{$old}{qw( sum type mode )}, $file, $options->{flags} && '-')
+			_writeline(@{$old}{qw( sum type mode uid gid )}, $file, $options->{flags} && '-')
 				if $options->{old};
 			next;
 		}
 
 		# --- added (only in new) ---
 		if (!defined $old && defined $new) {
-			_writeline(@{$new}{qw( sum type mode )}, $file, $options->{flags} && '+')
+			_writeline(@{$new}{qw( sum type mode uid gid )}, $file, $options->{flags} && '+')
 				if $options->{new};
 			next;
 		}
@@ -153,9 +149,11 @@ sub diff {
 		# --- unchanged ---
 		if ($old->{mode} eq $new->{mode} &&
 		    $old->{type} eq $new->{type} &&
-		    $old->{sum}  eq $new->{sum}
+		    $old->{sum}  eq $new->{sum}  &&
+		    $old->{uid}  eq $new->{uid}  &&
+		    $old->{gid}  eq $new->{gid}
 		) {
-			_writeline(@{$new}{qw( sum type mode )}, $file, $options->{flags} && '=')
+			_writeline(@{$new}{qw( sum type mode uid gid )}, $file, $options->{flags} && '=')
 				if $options->{unchanged};
 			next;
 		}
@@ -163,12 +161,12 @@ sub diff {
 		# --- changed ---
 		if ($options->{changed}) {
 			_writeline(
-				@{$old}{qw( sum type mode )},
+				@{$old}{qw( sum type mode uid gid )},
 				$file,
 				$options->{flags} ? ($options->{extended} ? '<' : 'C') : undef,
 			);
 			# --- only show the second line if we're displaying flags or extended info ---
-			_writeline(@{$new}{qw( sum type mode )}, $file, '>')
+			_writeline(@{$new}{qw( sum type mode uid gid )}, $file, '>')
 				if $options->{extended} && $options->{flags};
 		}
 	}
@@ -177,7 +175,22 @@ sub diff {
 # === Helper Functions ======================================================
 # --- write a manifest line to STDOUT or --outfile ---
 sub _writeline {
-	my ($sum, $type, $mode, $file, $flag) = @_;
+	# --- parse parameters ---
+	# Allow for two param formats:
+	#    sum type stathash file [flag]
+	#    sum type mode uid gid file [flag]
+	my ($sum, $type) = (shift, shift);
+	my ($mode, $uid, $gid);
+	if (ref $_[0]) {
+		my $stat = shift;
+		($mode, $uid, $gid) = (
+			$stat->{mode} & 07777,
+			$stat->{uid}, $stat->{gid},
+		);
+	} else {
+		($mode, $uid, $gid) = (shift, shift, shift);
+	}
+	my ($file, $flag) = (shift, shift);
 
 	# --- oft used vars ---
 	my $outfile   = $options->{outfile};
@@ -186,7 +199,8 @@ sub _writeline {
 	# --- generate the line ---
 	my $line = '';
 	$line .= "$flag " if defined $flag;
-	$line .= sprintf "%s %-4s %04o ", $sum, $type, $mode if $options->{extended};
+	$line .= sprintf "%s %-4s %04o %5d:%-5d", $sum, $type, $mode, $uid, $gid
+		if $options->{extended};
 	$line .= _normpath($file) ."\n";
 
 	if ($options->{outfile}) {
@@ -222,14 +236,19 @@ sub _loadFile {
 	# --- generate the hash of names/sums ---
 	my $hash = {};
 	foreach my $line (@lines) {
-		#! TODO: this doesn't folow my own rules!
-		my @fields = split /\s+/, $line;
-		$hash->{$fields[3]} = {
-			sum   => $fields[0],
-			type  => $fields[1],
-			mode  => oct($fields[2]),
-		};
+		my $lhash;
+		@{$lhash}{qw( sum type mode uid gid name )} = ($line =~
+			/^                        # beginning of line
+				([A-Fa-f0-9]{32}) \s+  # Sum
+				(file|dir|link)   \s+  # Type
+				([0-7]{4})        \s+  # Mode
+				(\d+):(\d+)       \s+  # UID:GID
+				(.*?)             \s*  # Name
+			$/x                       # end of line
+		);
+		$hash->{$lhash->{name}} = $lhash;
 	}
+
 	return $hash;
 }
 
@@ -339,7 +358,7 @@ sub _normpath {
 	foreach my $segment (split '/', $inpath) {
 		# --- toss away single dots and double slashes ---
 		next if $segment eq '' || $segment eq '.';
-		
+
 		# --- process double dots ---
 		if ($segment eq '..') {
 			if (@parts == 0) {
@@ -704,11 +723,11 @@ All fields are delimited by one or more character of whitespace.
 
 A simple example of these fields are as follows:
 
-   MD5Sum                           Type Mode Filename
-   -------------------------------- ---- ---- ----------------
-   00000000000000000000000000000000 dir  0755 foo/
-   4d40a8a9984cf47c8b512e32d3f46afa file 0644 foo/bar.file
-   d8db4cc080cfe6c8f871b49b07eb7839 link 0400 foo/bar.link
+   MD5Sum                           Type Mode  UID : GID  Filename
+   -------------------------------- ---- ---- ----- ----- ----------------
+   00000000000000000000000000000000 dir  0755     0:0     foo/
+   4d40a8a9984cf47c8b512e32d3f46afa file 0644 65535:65535 foo/bar.file
+   d8db4cc080cfe6c8f871b49b07eb7839 link 0400  1234:5678  foo/bar.link
 
 External processors should follow these guidelines strictly.
 For future compatibility, any results or values that do not fall within the guidelines
@@ -717,15 +736,15 @@ should be ignored or rejected.
 The following table shows which fields are generated depending on command executed
 and flags passed to the command:
 
-             Flag MD5Sum Type Mode Filename
-             ---- ------ ---- ---- --------
-   generate          x     x    x      x
-   diff                                x
-   diff -f     x                       x
-   diff -x          OLD    x    x      x
-   diff -fx    x     x     x    x      x
-   list                                x
-   list -x           x     x    x      x
+             Flag MD5Sum Type Mode UID:GID Filename
+             ---- ------ ---- ---- ------- --------
+   generate          x     x    x     x        x
+   diff                                        x
+   diff -f     x                               x
+   diff -x          OLD    x    x     x        x
+   diff -fx    x     x     x    x     x        x
+   list                                        x
+   list -x           x     x    x     x        x
 
 OLD = only the MD5Sum of the 1st differentiated file is shown.
 
@@ -757,6 +776,10 @@ At present three types of files are implemented: 'file', 'dir' and 'link'.
 A 4 digit octal mode specifying file permissions.
 See chmod(1) for details on these modes.
 
+=item UID:GID
+
+A pair of colon-separated digits giving the numeric user and group IDs for the file.
+
 =item Filename
 
 The path and/or name of the file, link or directory.
@@ -769,30 +792,21 @@ The following regex can be used to parse manifest lines
 (using Perl's extended format regex for commentary - see perlre(1) for details):
 
    /^                        # beginning of line
-      ([+C<>=-])        \s+  # Flag  (+ space delimiter)
-      ([A-Fa-f0-9]{32}) \s+  # Sum   (+ space delimiter)
-      (file|dir|link)   \s+  # Type  (+ space delimiter)
-      ([0-7]{4})        \s+  # Mode  (+ space delimiter)
-      (.*?)             \s*  # Name  (+ extra whitespace)
+      ([+C<>=-])        \s+  # Flag
+      ([A-Fa-f0-9]{32}) \s+  # Sum
+      (file|dir|link)   \s+  # Type
+      ([0-7]{4})        \s+  # Mode
+      (\d+):(\d+)       \s+  # UID/GID
+      (.*?)             \s*  # Name
    $/x                       # end of line
 
 Adjust your regex by remiving lines depending on the output you are expecting.
 
-=head1 KNOWN ISSUES AND BUGS
+=head1 TODO, KNOWN ISSUES AND BUGS
 
 =over 4
 
-=item B<I'm not using my own regex rules!>
-
-Dammit!
-
-=back
-
-=head1 TODO
-
-=over 4
-
-=item B<Additional Inout and Output Formats>
+=item TODO: B<Additional Input and Output Formats>
 
 Consider other formats that may be even more parsable: Data::Dumper, YAML, etc.
 
