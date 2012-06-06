@@ -10,7 +10,7 @@ $VERSION = "0.01";
 	vlog vlogf vlogfile vloglevel
 );
 
-use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging
+use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging
 
 use strict;
 use warnings;
@@ -208,7 +208,7 @@ sub _vcalc {
 	# --- calculate new verbosity ---
 	my $newval = $level;          # set verbosity to level
 	$newval = $current + $level   # adjust verbosity from current
-		if $level =~ /^[+-]/;      #    if level is signed
+		if $level =~ /^[+-]{2}/;   #    if level is signed
 
 	return $newval;
 }
