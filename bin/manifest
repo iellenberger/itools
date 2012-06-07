@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-our $VERSION="0.6.0";
+our $VERSION="0.7.0";
 
 # --- stuff to before any libraries are loaded ---
 BEGIN {
@@ -14,6 +14,7 @@ use Cwd;
 use Digest::MD5 qw( md5_hex );
 use Getopt::Long;
 use IO::File;
+use Switch;
 use Symbol;
 
 use strict;
@@ -115,7 +116,7 @@ sub list {
 # --- show diffs between two files ---
 sub diff {
 	# --- error checks ---
-	usage('--diff requires exactly two valid filenames') unless @ARGV == 2;
+	usage('diff requires exactly two valid filenames') unless @ARGV == 2;
 
 	# --- load file hashes and trim based on --filter ---
 	my $md5old = _loadFile(shift @ARGV || undef);
@@ -441,6 +442,15 @@ sub configure {
 	$options->{verbosity} = ($options->{verbose} || 0) - ($options->{quiet} || 0);
 	delete @{$options}{qw(quiet verbose)};
 
+	unless ($options->{generate} || $options->{diff} || $options->{list}) {
+		switch (shift @ARGV) {
+			case /^g/i { $options->{generate} = 1 }
+			case /^d/i { $options->{diff}     = 1 }
+			case /^l/i { $options->{list}     = 1 }
+			else       { usage("COMMAND required") }
+		}
+	}
+
 	# --- default: show old, changed and new ---
 	$options->{old} = $options->{changed} = $options->{new} = 1
 		unless $options->{old} || $options->{changed} || $options->{unchanged} || $options->{new};
@@ -467,9 +477,9 @@ usage: $progname COMMAND [options] FILE [ FILE ... ]
    --version           show version
 
 Commands (exactly one required):
-   -g, --generate      generate manifest
-   -d, --diff          compare two manifests
-   -l, --list          list files in manifest
+   g, generate         generate manifest
+   d, diff             compare two manifests
+   l, list             list files in manifest
 
 General Options:
    -F, --filter TYPE   show/manifest only (f)iles, (d)irs, (l)inks
@@ -506,10 +516,10 @@ manifest - iTools manifest tool
 =head1 SYNOPSIS
 
  manifest {-?|--man}
- manifest --generate [-rL] [-F TYPE] [-b DIR] [-p PATH]
+ manifest generate [-rL] [-F TYPE] [-b DIR] [-p PATH]
           [-O MANIFEST [-a]] FILE|PATH [...]
- manifest --list [-x] [-F TYPE] MANIFEST [...]
- manifest --diff [-ocunx] [-F TYPE] MANIFEST.OLD MANIFEST.NEW
+ manifest list [-x] [-F TYPE] MANIFEST [...]
+ manifest diff [-ocunx] [-F TYPE] MANIFEST.OLD MANIFEST.NEW
 
 =head1 DESCRIPTION
 
@@ -524,7 +534,7 @@ The common form for generating manifests is:
 
 This command displays a manifest generated from all files and directories given.
 
-By default, B<--generate> does not recurse subdirectories.
+By default, B<generate> does not recurse subdirectories.
 Use the B<-r> option to to change this behavior.
 
 When a symlink is found, B<manifest> uses the destination's path/file to generate the MD5Sum.
@@ -546,22 +556,22 @@ using the B<-p PATH> option.
 
 If you invoke the command:
 
-   manifest --list foo.mf
+   manifest list foo.mf
 
 all of the files listed in F<foo.mf> are sent to STDOUT.
 
 Alternately, for can list all files with extended information (MD5Sum, Type and Mode)
 in multiple manifests that are only links with the following command:
 
-   manifest --list --extended --links foo.mf bar.mf
+   manifest list --extended --links foo.mf bar.mf
 
 =head2 Determining Differences Between Manifests
 
-The simple form of the B<--diff> option is:
+The simple form of the B<diff> option is:
 
-   manifest --diff foo.mf bar.mf
+   manifest diff foo.mf bar.mf
 
-You can also filter the B<--diff> results by file type and whether files have changed.
+You can also filter the B<diff> results by file type and whether files have changed.
 See the L<Diff Options> section below for details.
 
 =head1 COMMANDS
@@ -570,15 +580,15 @@ There are three general commands this tool understands:
 
 =over 4
 
-=item B<-g>, B<--generate> FILE [...]
+=item B<g>, B<generate> FILE [...]
 
 Generate a manifest for the file(s) listed on the command line.
 
-=item B<-d>, B<--diff> MANIFEST.OLD MANIFEST.NEW
+=item B<d>, B<diff> MANIFEST.OLD MANIFEST.NEW
 
 Generate a list of files that differ based on two manifests.
 
-=item B<-l>, B<--list> MANIFEST [...]
+=item B<l>, B<list> MANIFEST [...]
 
 List the files or contents of one or more manifest.
 
@@ -663,7 +673,7 @@ Display flags before each line to indicate if and how the file has changed:
 =item B<-x>, B<--extended>
 
 Show extended information (MD5Sum, Type and Mode) before the file name.
-If used in a B<--diff> operation without the B<--flags> option, the MD5Sum of the OLD file is given.
+If used in a B<diff> operation without the B<--flags> option, the MD5Sum of the OLD file is given.
 
 =back
 
