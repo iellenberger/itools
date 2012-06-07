@@ -159,35 +159,55 @@ sub _writeline {
 
 # --- load a manifest file into a datastruct ---
 sub _loadHash {
-	my $filename = shift;
-	#! TODO: create function to figure out the version fo the filespec
-	my $version = 'unknown';
+	my ($content, $version) = (shift, shift || $::VERSION);
 
-	# --- if the file is a @LIST, generate the manifest on the fly ---
-	return _genHash($filename) if $filename =~ /^\@/;
+	# --- if the content is @LIST, generate a manifest on the fly ---
+	if ($content =~ /^\@/) {
+		return _genHash($content);
+	}
 
-	# --- error checks ---
-	usage("file '$filename' does not exist")   unless -e $filename;
-	usage("'$filename' is not a regular file") unless -f $filename;
+	# --- we were passed filename, not a a block of content ---
+	elsif (! ($content =~ /[\r\n]/)) {
+		my $filename = $content;
 
-	# --- load the file ---
-	my $content = _readfile($filename);
-	my @lines = split /[\n\r]+/, $content;
+		# --- error checks ---
+		usage("file '$filename' does not exist")   unless -e $filename;
+		usage("'$filename' is not a regular file") unless -f $filename;
+
+		# --- load the file ---
+		$content = _readfile($filename);
+	}
+
+	# --- split the content by line ---
+	my @lines = split /\s*[\n\r]+\s*/, $content;
 
 	# --- generate the hash of names/sums ---
 	my $hash = {};
 	foreach my $line (@lines) {
 		# --- convert line to fields ---
 		my $lhash;
-		@{$lhash}{qw( sum type mode uid gid name )} = ($line =~
-			/^                        # beginning of line
-				([A-Fa-f0-9]{32}) \s+  # Sum
-				(file|dir|link)   \s+  # Type
-				([0-7]{4})        \s+  # Mode
-				(\d+):(\d+)       \s+  # UID:GID
-				(.*?)             \s*  # Name
-			$/x                       # end of line
-		);
+		if ($version le '0.5') {
+			# --- old format ---
+			@{$lhash}{qw( sum type mode name )} = ($line =~
+				/^                        # beginning of line
+					([A-Fa-f0-9]{32}) \s+  # Sum
+					(file|dir|link)   \s+  # Type
+					([0-7]{4})        \s+  # Mode
+					(.*?)             \s*  # Name
+				$/x                       # end of line
+			);
+		} else {
+			# --- current format ---
+			@{$lhash}{qw( sum type mode uid gid name )} = ($line =~
+				/^                        # beginning of line
+					([A-Fa-f0-9]{32}) \s+  # Sum
+					(file|dir|link)   \s+  # Type
+					([0-7]{4})        \s+  # Mode
+					(\d+):(\d+)       \s+  # UID:GID
+					(.*?)             \s*  # Name
+				$/x                       # end of line
+			);
+		}
 		# --- convert mode to decimal --
 		$lhash->{mode} = oct($lhash->{mode});
 
@@ -219,11 +239,40 @@ sub _genHash {
 
 	# --- loop through each arg as a file/dir name ---
 	foreach my $arg (@args) {
-		# --- ignore specified files that doesn't exist ---
-		next unless -e $arg || $arg =~ /^\@/;
 
-		# --- list file/dir and pricess each result ---
-		my $ls = _ls($arg, $lsopts);
+		my $ls;
+
+		# --- if it's a @LIST, push the list of files onto the enf of @args ---
+		if ($arg =~ /^\@(.*?)$/) {
+			my $listfile = $1;
+			my @list;
+
+			my $version = _fileVersion($listfile);
+			# --- if this is a manifest, load it and use the list of files ---
+			if ($version) {
+				my $subhash = _loadHash($listfile, $version);
+				@list = sort keys %$subhash;
+			}
+			# --- it's just a list of files ---
+			else {
+				@list = split /\s*[\r\n]+\s*/, _readfile($listfile);
+			}
+
+			foreach my $file (@list) {
+				$ls->{$file} = _filestat($file);
+			}
+		}
+
+		# --- it's a file/dir ---
+		else {
+			# --- ignore files that don't exist ---
+			next unless -e $arg;
+
+			# --- list file/dir ---
+			$ls = _ls($arg, $lsopts);
+		}
+
+		# --- and process each file/dir ---
 		foreach my $file (sort keys %$ls) {
 
 			# --- filter on type ---
@@ -249,7 +298,7 @@ sub _genHash {
 			$hash->{$name} = {
 				sum  => $sum,
 				type => $type,
-				mode => $ls->{$file}->{mode} & 07777,
+				mode => $ls->{$file}->{mode},
 				uid  => $ls->{$file}->{uid},
 				gid  => $ls->{$file}->{gid},
 				name => $name,
@@ -272,6 +321,41 @@ sub _fileFilter {
 	return 0;
 }
 
+# --- determine the version of a manifest file ----
+sub _fileVersion {
+	my $filename = shift;
+
+	# --- read a line from the file ---
+	my $fh = gensym(); open $fh, $filename  # open the file
+		or return '';                        #    or return unknown
+	my $line = <$fh>; chomp $line;          # read a line
+	close $fh; ungensym($fh);               # close the file
+
+	# --- current version ---
+	return $::VERSION
+		if $line =~
+			/^                        # beginning of line
+				([A-Fa-f0-9]{32}) \s+  # Sum
+				(file|dir|link)   \s+  # Type
+				([0-7]{4})        \s+  # Mode
+				(\d+):(\d+)       \s+  # UID:GID
+				(.*?)             \s*  # Name
+			$/x;                      # end of line
+
+	# --- version 0.5 & earlier ---
+	return '0.5'
+		if $line =~
+			/^                        # beginning of line
+				([A-Fa-f0-9]{32}) \s+  # Sum
+				(file|dir|link)   \s+  # Type
+				([0-7]{4})        \s+  # Mode
+				(.*?)             \s*  # Name
+			$/x;                      # end of line
+
+	# --- unknown format ---
+	return '';
+}
+
 # === Stuff taken from iTools ===============================================
 
 # --- read a file ---
@@ -287,23 +371,6 @@ sub _readfile {
 # --- generate a dir hash structure ---
 sub _ls {
 	my $path = shift || '.';
-
-	# --- if the path starts with a '@' it's a list of files ---
-	if ($path =~ /^\@(.*?)$/) {
-		# --- get a list of files from a file or STDIN ---
-		my ($file, @files) = ($1);
-		if ($file eq '-') { @files = map { chomp; $_ } <STDIN> }
-		else { @files = split /\s*[\r\n]+\s*/, _readfile($file) }
-
-		# --- generate the list structure ---
-		my $list;
-		foreach my $file (@files) {
-			next unless -e $file;
-			$list->{$file} = _filestat($file);
-		}
-
-		return $list;
-	}
 
 	# --- get name and stat for current file/path ---
 	my $stat = _filestat($path);
@@ -352,6 +419,9 @@ sub _filestat {
 	for (my $ii = 0; $ii < @statkey; $ii++) {
 		$stat->{$statkey[$ii]} = $statval[$ii];
 	}
+
+	# --- bitwise or the mask ---
+	$stat->{mode} &= 07777;
 
 	# --- set the file type ---
 	if (-l $file && !$options->{follow}) { $stat->{type} = 'link' }
