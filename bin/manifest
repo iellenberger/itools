@@ -9,7 +9,7 @@ BEGIN {
 		exec $0,@ARGV;
 }	}
 
-use Data::Dumper; $Data::Dumper::Indent=0; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1;
+use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1;
 use Cwd;
 use Digest::MD5 qw( md5_hex );
 use Getopt::Long;
@@ -39,9 +39,6 @@ exit 0;
 # --- generate a manifest ---
 sub generate {
 	# --- predefine/declare a few vars ---
-	my $error = 0;
-	my $lsopts = $options->{recursive} ? 'fdr' : 'fd';
-	my $prepend = $options->{prepend} || '';
 	$options->{extended} = 1;   # force --extended for generate
 
 	# --- open the outfile if not already opened ---
@@ -62,55 +59,25 @@ sub generate {
 		chdir $options->{basedir};
 	}
 
-	# --- loop through each arg as a file/dir name ---
-	foreach my $arg (@ARGV) {
-		# --- ignore specified files that doesn't exist ---
-		next unless -e $arg;
-
-		# --- list file/dir and pricess each result ---
-		my $ls = _ls($arg, $lsopts);
-		foreach my $file (sort keys %$ls) {
-
-			# --- filter on type ---
-			next unless _fileFilter($ls->{$file});
-
-			# --- test for bad symlinks ---
-			if (-l $file) {
-				# --- read link and prepend dir if not absolute ---
-				my $link = readlink($file);
-				$link = _normpath("$file/../$link")
-					unless $link =~ m|^/|;
-			}
-
-			# --- generate the md5sum ---
-			my $sum;
-			my $type = $ls->{$file}->{type};
-			if    ($type eq 'dir')  { $sum = '0' x 32 }
-			elsif ($type eq 'link') { $sum = md5_hex readlink($file) }
-			else                    { $sum = md5_hex _readfile($file) }
-
-			# --- add a slash to the end of dirs ---
-			#$file .= '/' if $type eq 'dir' && !($file =~ /t$/);
-
-			# --- generate the manifest line ---
-			_writeline($sum, $type, $ls->{$file}, $prepend . $file);
-		}
+	my $hash = _genHash(@ARGV);
+	foreach my $file (sort keys %$hash) {
+		# --- generate the manifest line ---
+		_writeline($hash->{$file});
 	}
 
 	# --- pop back to the old cwd ---
 	chdir $pushdir;
-
-	exit 1 if $error;
 }
 
 # --- list files in a manifest ---
 sub list {
 	foreach my $file (@ARGV) {
-		my $md5 = _loadFile($file);
+		my $md5 = _loadHash($file);
 		foreach my $file (sort keys %$md5) {
 			# --- filter on type ---
 			next unless _fileFilter($md5->{$file});
-			_writeline(@{$md5->{$file}}{qw( sum type mode uid gid )}, $file);
+			#_writeline(@{$md5->{$file}}{qw( sum type mode uid gid )}, $file);
+			_writeline($md5->{$file});
 }	}	}
 
 # --- show diffs between two files ---
@@ -119,9 +86,9 @@ sub diff {
 	usage('diff requires exactly two valid filenames') unless @ARGV == 2;
 
 	# --- load file hashes and trim based on --filter ---
-	my $md5old = _loadFile(shift @ARGV || undef);
+	my $md5old = _loadHash(shift @ARGV || undef);
 	map { _fileFilter($md5old->{$_}) || delete $md5old->{$_} } keys %$md5old;
-	my $md5new = _loadFile(shift @ARGV || undef);
+	my $md5new = _loadHash(shift @ARGV || undef);
 	map { _fileFilter($md5new->{$_}) || delete $md5new->{$_} } keys %$md5new;
 
 	# --- create a unique list of all files ---
@@ -135,14 +102,14 @@ sub diff {
 
 		# --- removed (only in old) ---
 		if (defined $old && !defined $new) {
-			_writeline(@{$old}{qw( sum type mode uid gid )}, $file, $options->{flags} && '-')
+			_writeline($old, $options->{flags} && '-')
 				if $options->{old};
 			next;
 		}
 
 		# --- added (only in new) ---
 		if (!defined $old && defined $new) {
-			_writeline(@{$new}{qw( sum type mode uid gid )}, $file, $options->{flags} && '+')
+			_writeline($new, $options->{flags} && '+')
 				if $options->{new};
 			next;
 		}
@@ -154,20 +121,16 @@ sub diff {
 		    $old->{uid}  eq $new->{uid}  &&
 		    $old->{gid}  eq $new->{gid}
 		) {
-			_writeline(@{$new}{qw( sum type mode uid gid )}, $file, $options->{flags} && '=')
+			_writeline($new, $options->{flags} && '=')
 				if $options->{unchanged};
 			next;
 		}
 
 		# --- changed ---
 		if ($options->{changed}) {
-			_writeline(
-				@{$old}{qw( sum type mode uid gid )},
-				$file,
-				$options->{flags} ? ($options->{extended} ? '<' : 'C') : undef,
-			);
+			_writeline($old, $options->{flags} ? ($options->{extended} ? '<' : 'C') : undef);
 			# --- only show the second line if we're displaying flags or extended info ---
-			_writeline(@{$new}{qw( sum type mode uid gid )}, $file, '>')
+			_writeline($new, '>')
 				if $options->{extended} && $options->{flags};
 		}
 	}
@@ -176,22 +139,7 @@ sub diff {
 # === Helper Functions ======================================================
 # --- write a manifest line to STDOUT or --outfile ---
 sub _writeline {
-	# --- parse parameters ---
-	# Allow for two param formats:
-	#    sum type stathash file [flag]
-	#    sum type mode uid gid file [flag]
-	my ($sum, $type) = (shift, shift);
-	my ($mode, $uid, $gid);
-	if (ref $_[0]) {
-		my $stat = shift;
-		($mode, $uid, $gid) = (
-			$stat->{mode} & 07777,
-			$stat->{uid}, $stat->{gid},
-		);
-	} else {
-		($mode, $uid, $gid) = (shift, shift, shift);
-	}
-	my ($file, $flag) = (shift, shift);
+	my ($hash, $flag) = (shift, shift);
 
 	# --- oft used vars ---
 	my $outfile   = $options->{outfile};
@@ -200,9 +148,9 @@ sub _writeline {
 	# --- generate the line ---
 	my $line = '';
 	$line .= "$flag " if defined $flag;
-	$line .= sprintf "%s %-4s %04o %5d:%-5d", $sum, $type, $mode, $uid, $gid
+	$line .= sprintf "%s %-4s %04o %5d:%-5d", $hash->{sum}, $hash->{type}, $hash->{mode}, $hash->{uid}, $hash->{gid}
 		if $options->{extended};
-	$line .= _normpath($file) ."\n";
+	$line .= _normpath($hash->{name}) ."\n";
 
 	if ($options->{outfile}) {
 		# --- open the outfile if not already opened ---
@@ -222,9 +170,12 @@ sub _writeline {
 }
 
 # --- load a manifest file into a datastruct ---
-sub _loadFile {
+sub _loadHash {
 	my $filename = shift;
 	my $version = 'unknown';
+
+	# --- use a @listfile to generate a manifest instead of using an existing one ---
+	return _genHash($filename) if $filename =~ /^\@/;
 
 	# --- error checks ---
 	usage("file '$filename' does not exist")   unless -e $filename;
@@ -237,6 +188,7 @@ sub _loadFile {
 	# --- generate the hash of names/sums ---
 	my $hash = {};
 	foreach my $line (@lines) {
+		# --- convert line to fields ---
 		my $lhash;
 		@{$lhash}{qw( sum type mode uid gid name )} = ($line =~
 			/^                        # beginning of line
@@ -247,7 +199,73 @@ sub _loadFile {
 				(.*?)             \s*  # Name
 			$/x                       # end of line
 		);
+		# --- convert mode to decimal --
+		$lhash->{mode} = oct($lhash->{mode});
+
+		# --- save the hash ---
 		$hash->{$lhash->{name}} = $lhash;
+	}
+
+	return $hash;
+}
+
+# --- generate manifest data structure ---
+sub _genHash {
+	my @args = @_;
+
+	my $lsopts = $options->{recursive} ? 'fdr' : 'fd';
+
+	# --- change to the basedir if specified ---
+	my $pushdir = cwd;
+	if ($options->{basedir}) {
+		unless (-d $options->{basedir}) {
+			print STDERR "error: could not change to basedir $options->{basedir}\n";
+			exit 1;
+		}
+		chdir $options->{basedir};
+	}
+
+	my $hash = {};
+	my $prefix = $options->{prefix} || '';
+
+	# --- loop through each arg as a file/dir name ---
+	foreach my $arg (@args) {
+		# --- ignore specified files that doesn't exist ---
+		next unless -e $arg || $arg =~ /^\@/;
+
+		# --- list file/dir and pricess each result ---
+		my $ls = _ls($arg, $lsopts);
+		foreach my $file (sort keys %$ls) {
+
+			# --- filter on type ---
+			next unless _fileFilter($ls->{$file});
+
+			# --- test for bad symlinks ---
+			if (-l $file) {
+				# --- read link and prefix dir if not absolute ---
+				my $link = readlink($file);
+				$link = _normpath("$file/../$link")
+					unless $link =~ m|^/|;
+			}
+
+			# --- generate the md5sum ---
+			my $sum;
+			my $type = $ls->{$file}->{type};
+			if    ($type eq 'dir')  { $sum = '0' x 32 }
+			elsif ($type eq 'link') { $sum = md5_hex readlink($file) }
+			else                    { $sum = md5_hex _readfile($file) }
+
+			# --- build the hash ---
+			my $name = $prefix . $file;
+			$hash->{$name} = {
+				sum  => $sum,
+				type => $type,
+				mode => $ls->{$file}->{mode} & 07777,
+				uid  => $ls->{$file}->{uid},
+				gid  => $ls->{$file}->{gid},
+				name => $name,
+			};
+		}
 	}
 
 	return $hash;
@@ -277,6 +295,23 @@ sub _readfile {
 # --- generate a dir hash structure ---
 sub _ls {
 	my $path = shift || '.';
+
+	# --- if the path starts with a '@' it's a list of files ---
+	if ($path =~ /^\@(.*?)$/) {
+		# --- get a list of files from a file or STDIN ---
+		my ($file, @files) = ($1);
+		if ($file eq '-') { @files = map { chomp; $_ } <STDIN> }
+		else { @files = split /\s*[\r\n]+\s*/, _readfile($file) }
+
+		# --- generate the list structure ---
+		my $list;
+		foreach my $file (@files) {
+			next unless -e $file;
+			$list->{$file} = _filestat($file);
+		}
+
+		return $list;
+	}
 
 	# --- get name and stat for current file/path ---
 	my $stat = _filestat($path);
@@ -488,7 +523,7 @@ Generate Options:
    -r, --recursive     recurse subdirectories
    -L, --follow        follow symlinks
    -b, --basedir DIR   generate manifest starting ar DIR
-   -p, --prefix PATH   prepend PATH to all filenames
+   -p, --prefix PATH   prefix PATH to all filenames
    -O, --outfile FILE  output file
       -a, --append     append to --output file
 
