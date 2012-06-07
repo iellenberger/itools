@@ -49,24 +49,13 @@ sub generate {
 			unless $options->{verbosity} < 0;
 	}
 
-	# --- change to the basedir if specified ---
-	my $pushdir = cwd;
-	if ($options->{basedir}) {
-		unless (-d $options->{basedir}) {
-			print STDERR "error: could not change to basedir $options->{basedir}\n";
-			exit 1;
-		}
-		chdir $options->{basedir};
-	}
-
+	# --- generate the manifest hash ---
 	my $hash = _genHash(@ARGV);
+
+	# --- write the generated hash as a text manifest ---
 	foreach my $file (sort keys %$hash) {
-		# --- generate the manifest line ---
 		_writeline($hash->{$file});
 	}
-
-	# --- pop back to the old cwd ---
-	chdir $pushdir;
 }
 
 # --- list files in a manifest ---
@@ -76,7 +65,6 @@ sub list {
 		foreach my $file (sort keys %$md5) {
 			# --- filter on type ---
 			next unless _fileFilter($md5->{$file});
-			#_writeline(@{$md5->{$file}}{qw( sum type mode uid gid )}, $file);
 			_writeline($md5->{$file});
 }	}	}
 
@@ -172,9 +160,10 @@ sub _writeline {
 # --- load a manifest file into a datastruct ---
 sub _loadHash {
 	my $filename = shift;
+	#! TODO: create function to figure out the version fo the filespec
 	my $version = 'unknown';
 
-	# --- use a @listfile to generate a manifest instead of using an existing one ---
+	# --- if the file is a @LIST, generate the manifest on the fly ---
 	return _genHash($filename) if $filename =~ /^\@/;
 
 	# --- error checks ---
@@ -213,7 +202,10 @@ sub _loadHash {
 sub _genHash {
 	my @args = @_;
 
+	# --- predefine/declare a few vars ---
+	my $hash = {};
 	my $lsopts = $options->{recursive} ? 'fdr' : 'fd';
+	my $prefix = $options->{prefix} || '';
 
 	# --- change to the basedir if specified ---
 	my $pushdir = cwd;
@@ -224,9 +216,6 @@ sub _genHash {
 		}
 		chdir $options->{basedir};
 	}
-
-	my $hash = {};
-	my $prefix = $options->{prefix} || '';
 
 	# --- loop through each arg as a file/dir name ---
 	foreach my $arg (@args) {
@@ -255,7 +244,7 @@ sub _genHash {
 			elsif ($type eq 'link') { $sum = md5_hex readlink($file) }
 			else                    { $sum = md5_hex _readfile($file) }
 
-			# --- build the hash ---
+			# --- build the file's datastruct ---
 			my $name = $prefix . $file;
 			$hash->{$name} = {
 				sum  => $sum,
@@ -267,6 +256,9 @@ sub _genHash {
 			};
 		}
 	}
+
+	# --- pop back to the old cwd ---
+	chdir $pushdir;
 
 	return $hash;
 }
@@ -464,6 +456,9 @@ sub configure {
 		'new|n+',           # show new files
 		'all+',             # show all files
 		'flags|f+',         # show -/</>/C/=/+ flags
+
+		#! TODO: implement diff-filtering feature
+		'sum|s+', 'type|t+', 'mode|m+', 'uid|U+', 'gid|G+',
 	);
 
 	# --- show usage, man page or version ---
@@ -503,7 +498,7 @@ sub usage {
 
 	print STDERR qq[\nerror: $error\n] if $error;
 	print STDERR qq[
-usage: $progname COMMAND [options] FILE [ FILE ... ]
+usage: $progname COMMAND [options] FILE|PATH|\@LIST [...]
 
    -?, --help          display this message
       --man               display the manual page for $progname
@@ -552,14 +547,13 @@ manifest - iTools manifest tool
 
  manifest {-?|--man}
  manifest generate [-rL] [-F TYPE] [-b DIR] [-p PATH]
-          [-O MANIFEST [-a]] FILE|PATH [...]
- manifest list [-x] [-F TYPE] MANIFEST [...]
- manifest diff [-ocunx] [-F TYPE] MANIFEST.OLD MANIFEST.NEW
+          [-O MANIFEST [-a]] FILE|PATH|@LIST [...]
+ manifest list [-x] [-F TYPE] MANIFEST|@LIST [...]
+ manifest diff [-ocunx] [-F TYPE] MANIFEST.OLD|@LIST MANIFEST.NEW|@LIST
 
 =head1 DESCRIPTION
 
 B<manifest> is a tool for generating, listing and diff'ing filesystem manifests.
-
 
 =head2 Generating Manifests
 
@@ -593,12 +587,16 @@ If you invoke the command:
 
    manifest list foo.mf
 
-all of the files listed in F<foo.mf> are sent to STDOUT.
+the list of files in F<foo.mf> is sent to STDOUT.
 
-Alternately, for can list all files with extended information (MD5Sum, Type and Mode)
-in multiple manifests that are only links with the following command:
+N<list> laso has a number fo filtering options.
+For a list all files in multiple manifests that are symlinks displayed along
+with their extended information (MD5Sum, Type, Mode and UID:GID), you would
+execute the following:
 
    manifest list --extended --links foo.mf bar.mf
+
+See the L<List Options> section below for a fill list of options.
 
 =head2 Determining Differences Between Manifests
 
@@ -609,25 +607,95 @@ The simple form of the B<diff> option is:
 You can also filter the B<diff> results by file type and whether files have changed.
 See the L<Diff Options> section below for details.
 
+=head2 @LIST Files
+
+A feature added as of v0.7 is the ability to create manifests dynamically
+from a file list.
+You can now compare a saved manifest to the contents of your filesystem much
+more effectively.
+
+In v0.6 and earlier, B<diff>'ing a saved manifest against the current
+contents of your filesystem was problematic.
+To do that, you would do something like the following (FYI: this still works):
+
+   manifest --generate -r -b /usr/local > current.mf
+   manifest --diff -ocf original.mf current.mf
+
+This method generates a manifest for the whole of the base directory
+(/usr/local in the example) and not just for the files in which you're
+interested.
+If there are many and/or large files in the base directory aside from the
+files you're looking to compare, the performance impact is notable.
+
+The @LIST feature introduced in v0.7 allows you to create a manifest from a
+list of files.
+As a result, all the 'extra' files that caused a problem in the first example
+are no longer an issue.
+
+The command sequence would now look like this:
+
+   manifest list original.mf > original.list
+   manifest generate -b /usr/local @original.list > current.mf
+   manifest diff -f original.mf current.mf
+
+That's much cleaner, but we can do better.
+To start, we can combine the B<generate> and B<diff> commands into one line like
+so:
+
+   manifest list original.mf > original.list
+   manifest diff -fb /usr/local original.mf @original.list
+
+Note that we used B<generate>-only option B<-b> (B<--basedir>) for the B<diff> command.
+When using @LIST, all B<generate>-only options are available and applied to
+files in the list.
+
+@LIST also lets you pipe in the list via STDIN by using a dash ('-') for the filename.
+That means we can reduce the command down to a one-liner that looks like this:
+
+   manifest list original.mf | manifest diff -fb /usr/local original.mf @-
+
+There's one more feature that can shorten the command even more.
+If the contents of @LIST is recognized as a valid manifest, it will extract
+its list of files from that manifest.
+That would make for our best example yet:
+
+   manifest diff -b /usr/local original.mf @original.mf
+
 =head1 COMMANDS
 
 There are three general commands this tool understands:
 
 =over 4
 
-=item B<g>, B<generate> FILE [...]
+=item B<g[enerate]> FILE|PATH|@LIST [...]
 
 Generate a manifest for the file(s) listed on the command line.
 
-=item B<d>, B<diff> MANIFEST.OLD MANIFEST.NEW
+=item B<d[iff]> MANIFEST.OLD|@LIST MANIFEST.NEW|@LIST
 
 Generate a list of files that differ based on two manifests.
 
-=item B<l>, B<list> MANIFEST [...]
+=item B<l[ist]> MANIFEST|@LIST [...]
 
 List the files or contents of one or more manifest.
 
 =back
+
+All commands can be passed as options by prefixing them with a single or double minus
+(for single character or long options respectively).
+This allows you to place the command anywhere in the command line.
+
+Commands also can be shortened down to a single character.
+
+For example, the following lines are all equivalent:
+
+   manifest --generate --recursive --prefix /tmp/ *
+   manifest * --recursive --prefix /tmp/ --gener
+   manifest generate * --recursive --prefix /tmp/
+   manifest gen -r --prefix /tmp/ *
+   manifest g -r * -p /tmp/
+   manifest -p /tmp/ * -gr
+   manifest -grp /tmp/ *
 
 =head1 OPTIONS
 
@@ -845,7 +913,7 @@ The following regex can be used to parse manifest lines
       (.*?)             \s*  # Name
    $/x                       # end of line
 
-Adjust your regex by remiving lines depending on the output you are expecting.
+Adjust your regex by removing lines depending on the output you are expecting.
 
 =head1 TODO, KNOWN ISSUES AND BUGS
 
@@ -854,6 +922,11 @@ Adjust your regex by remiving lines depending on the output you are expecting.
 =item TODO: B<Additional Input and Output Formats>
 
 Consider other formats that may be even more parsable: Data::Dumper, YAML, etc.
+
+=item TODO: B<Filter Diffs by Change Type>
+
+Add flags such as B<--sum>, B<--type>, B<--mode>, B<--uid> and B<--gid> for
+filtering based on change type.
 
 =back
 
