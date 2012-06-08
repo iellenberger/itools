@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-our $VERSION="0.7.0";
+our $VERSION="0.7.1";
 
 # --- stuff to before any libraries are loaded ---
 BEGIN {
@@ -154,7 +154,7 @@ sub _writeline {
 
 	# --- print to stdout ---
 	print $line
-		if (!$outfile && $verbosity >= 0) || ($outfile  && $verbosity >= 1);
+		if (!$outfile && $verbosity >= 0) || ($outfile && $verbosity >= 1);
 }
 
 # --- load a manifest file into a datastruct ---
@@ -237,6 +237,12 @@ sub _genHash {
 		chdir $options->{basedir};
 	}
 
+	# --- use all files in current dir if no args given ---
+	unless (@args) {
+		my $ls = _ls('.', 'fd');
+		@args = keys %$ls;
+	}
+
 	# --- loop through each arg as a file/dir name ---
 	foreach my $arg (@args) {
 
@@ -255,7 +261,7 @@ sub _genHash {
 			}
 			# --- it's just a list of files ---
 			else {
-				@list = split /\s*[\r\n]+\s*/, _readfile($listfile);
+				@list = split /\s*[\r\n]+\s*/, _readfile($listfile) || '';
 			}
 
 			foreach my $file (@list) {
@@ -370,7 +376,10 @@ sub _readfile {
 
 # --- generate a dir hash structure ---
 sub _ls {
-	my $path = shift || '.';
+	my ($path, $opts) = (shift || '.', shift || '');
+
+	# --- set a few variables ---
+	my $recurse = $opts =~ /r/ ? 1 : 0;
 
 	# --- get name and stat for current file/path ---
 	my $stat = _filestat($path);
@@ -391,7 +400,7 @@ sub _ls {
 		$list->{$stat->{name}} = $stat;
 
 		# --- recurse subdirs ---
-		if ($stat->{type} eq 'dir' && $options->{recursive}) {
+		if ($stat->{type} eq 'dir' && $recurse) {
 			my $innerls = _ls($stat->{name});
 			while (my ($key, $value) = each %$innerls) {
 				$list->{$key} = $value;
@@ -617,7 +626,7 @@ manifest - iTools manifest tool
 
  manifest {-?|--man}
  manifest generate [-rL] [-F TYPE] [-b DIR] [-p PATH]
-          [-O MANIFEST [-a]] FILE|PATH|@LIST [...]
+          [-O MANIFEST [-a]] [FILE|PATH|@LIST [...]]
  manifest list [-x] [-F TYPE] MANIFEST|@LIST [...]
  manifest diff [-ocunx] [-F TYPE] MANIFEST.OLD|@LIST MANIFEST.NEW|@LIST
 
@@ -629,9 +638,11 @@ B<manifest> is a tool for generating, listing and diff'ing filesystem manifests.
 
 The common form for generating manifests is:
 
-   manifest -gr FILE|DIR ...
+   manifest -gr FILE|PATH|@LIST ...
 
-This command displays a manifest generated from all files and directories given.
+This command displays a manifest generated from all FILEs, PATHs or @LISTs given.
+If no FILE, PATH or @LIST is given, all files in the current directory (or
+B<--basedir> if specified) are used.
 
 By default, B<generate> does not recurse subdirectories.
 Use the B<-r> option to to change this behavior.
