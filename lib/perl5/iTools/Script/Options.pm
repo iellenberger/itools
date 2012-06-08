@@ -1,6 +1,6 @@
 package iTools::Script::Options;
 use base qw( iTools::Core::Accessor );
-$VERSION = 0.1;
+our $VERSION = "0.1";
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
 
@@ -131,6 +131,9 @@ sub parse {
 		'quiet|q+',           # do things quietly
 		'verbose|v+',         # do things loudly
 		'verbosity|V=n',      # set an explicit verbosity level
+		'version+',           # show the version
+
+		# --- misc options ---
 		'color!',             # colored output
 		'debug+',             # debug output
 
@@ -142,9 +145,9 @@ sub parse {
 	);
 
 	# --- show usage or man page ---
-	$self->{help} && do { $self->usage() };
-	#$self->{man} && do { exec "perldoc $0" };
-	$self->{man} && $self->man;
+	$self->{help}    && do { $self->usage() };
+	$self->{man}     && $self->man;
+	$self->{version} && do { print "$::VERSION\n"; exit 0 };
 
 	# --- minimum arguments required ---
 	$self->usage("A minimum of ". $self->minargs ." argument". ($self->minargs > 1 ? 's' : '') ." is required")
@@ -183,7 +186,7 @@ sub usage {
 	vprint -1, "\n". cpush('r') ."error: ". cpop ."$error\n\n" if $error;
 
 	my $usageformat = $self->usageformat;
-	vprint 0, <<USAGE ."\n". $self->usagetext ."\n\n";
+	vprint 0, <<USAGE ."\n". $self->usagetext ."\n\n$Script version $::VERSION\n\n";
 usage: $Script [-qv] $usageformat
 
 Options:
