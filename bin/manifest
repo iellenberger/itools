@@ -426,7 +426,7 @@ sub _ls {
 
 		# --- recurse subdirs ---
 		if ($stat->{type} eq 'dir' && $recurse) {
-			my $innerls = _ls($stat->{name});
+			my $innerls = _ls($stat->{name}, $opts);
 			while (my ($key, $value) = each %$innerls) {
 				$list->{$key} = $value;
 			}
