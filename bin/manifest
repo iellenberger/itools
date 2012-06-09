@@ -26,6 +26,10 @@ my $options = configure({
 	filter    => 'fdl',
 });
 
+# === Configuration and Globals =============================================
+# --- file buffer for _readfile ---
+my $filebuffer = {};
+
 # === Main Body of Code =====================================================
 SWITCH: {
 	$options->{generate} && do { generate(); last };
@@ -240,7 +244,8 @@ sub _genHash {
 	# --- use all files in current dir if no args given ---
 	unless (@args) {
 		my $ls = _ls('.', 'fd');
-		@args = keys %$ls;
+		$filebuffer->{'<noparams>'} = join "\n", keys %$ls;
+		push @args, '@<noparams>';
 	}
 
 	# --- loop through each arg as a file/dir name ---
@@ -261,11 +266,23 @@ sub _genHash {
 			}
 			# --- it's just a list of files ---
 			else {
-				@list = split /\s*[\r\n]+\s*/, _readfile($listfile) || '';
+				my $content = _readfile($listfile);
+				@list = split /\s*[\r\n]+\s*/, $content || '';
 			}
 
 			foreach my $file (@list) {
-				$ls->{$file} = _filestat($file);
+				# --- if --recursive, make sure we get everything --
+				if ($options->{recursive}) {
+					my $ls2 = _ls($file, $lsopts);
+					foreach my $key (keys %$ls2) {
+						$ls->{$key} = $ls2->{$key}
+					}
+				}
+
+				# --- just get the one item if not --recursive ---
+				else {
+					$ls->{$file} = _filestat($file);
+				}
 			}
 		}
 
@@ -331,11 +348,12 @@ sub _fileFilter {
 sub _fileVersion {
 	my $filename = shift;
 
-	# --- read a line from the file ---
-	my $fh = gensym(); open $fh, $filename  # open the file
-		or return '';                        #    or return unknown
-	my $line = <$fh>; chomp $line;          # read a line
-	close $fh; ungensym($fh);               # close the file
+	my $line = (split /\s*[\r\n]+\s*/, _readfile($filename))[0] || '';
+#	# --- read a line from the file ---
+#	my $fh = gensym(); open $fh, $filename  # open the file
+#		or return '';                        #    or return unknown
+#	my $line = <$fh>; chomp $line;          # read a line
+#	close $fh; ungensym($fh);               # close the file
 
 	# --- current version ---
 	return $::VERSION
@@ -367,11 +385,18 @@ sub _fileVersion {
 # --- read a file ---
 sub _readfile {
 	my $filename = shift || return undef;             # get filename (required)
-	my $fh = gensym(); open $fh, $filename            # open file or throw error
-		or return undef;
-		# or die "Error opening file '$filename': $!";
-	my $content = ''; { local $/; $content = <$fh>; } # read contents
-	close $fh; ungensym($fh); return $content;        # close it up and return content
+
+	# --- don't read content twice ---
+	return $filebuffer->{$filename} if $filebuffer->{$filename};
+
+	# --- read the file as one block ---
+	my $fh = gensym(); open $fh, $filename or return undef;
+	my $content; { local $/; $content = <$fh>; }
+	close $fh; ungensym($fh);
+
+	# --- save the content to the buffer and return ---
+	$filebuffer->{$filename} = $content;
+	return $content;
 }
 
 # --- generate a dir hash structure ---
