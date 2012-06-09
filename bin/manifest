@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-our $VERSION="0.7.1";
+our $VERSION="0.7.2";
 
 # --- stuff to before any libraries are loaded ---
 BEGIN {
@@ -28,7 +28,7 @@ my $options = configure({
 
 # === Configuration and Globals =============================================
 # --- file buffer for _readfile ---
-my $filebuffer = {};
+my $filecache = {};
 
 # === Main Body of Code =====================================================
 SWITCH: {
@@ -219,6 +219,10 @@ sub _loadHash {
 		$hash->{$lhash->{name}} = $lhash;
 	}
 
+	# --- trim and prune ---
+	_trimHash($hash)  if $options->{trim};
+	_pruneHash($hash) if $options->{prune};
+
 	return $hash;
 }
 
@@ -244,8 +248,8 @@ sub _genHash {
 	# --- use all files in current dir if no args given ---
 	unless (@args) {
 		my $ls = _ls('.', 'fd');
-		$filebuffer->{'<noparams>'} = join "\n", keys %$ls;
-		push @args, '@<noparams>';
+		$filecache->{'/<noparams>'} = join "\n", keys %$ls;
+		push @args, '@/<noparams>';
 	}
 
 	# --- loop through each arg as a file/dir name ---
@@ -253,10 +257,13 @@ sub _genHash {
 
 		my $ls;
 
-		# --- if it's a @LIST, push the list of files onto the enf of @args ---
+		# --- if it's a @LIST, push the list of files onto the end of @args ---
 		if ($arg =~ /^\@(.*?)$/) {
 			my $listfile = $1;
 			my @list;
+
+			$listfile = "$pushdir/$listfile"
+				unless $listfile =~ m|^/|;
 
 			my $version = _fileVersion($listfile);
 			# --- if this is a manifest, load it and use the list of files ---
@@ -268,6 +275,13 @@ sub _genHash {
 			else {
 				my $content = _readfile($listfile);
 				@list = split /\s*[\r\n]+\s*/, $content || '';
+
+				# --- if we're doing a trim or prune, run the list through _genHash ---
+				#! NOTE: we could do this every time, but don't for efficiency's sake
+				if ($options->{trim} || $options->{prune}) {
+					my $subhash = _genHash(@list);
+					@list = sort keys %$subhash;;
+				}
 			}
 
 			foreach my $file (@list) {
@@ -314,7 +328,7 @@ sub _genHash {
 			my $type = $ls->{$file}->{type};
 			if    ($type eq 'dir')  { $sum = '0' x 32 }
 			elsif ($type eq 'link') { $sum = md5_hex readlink($file) }
-			else                    { $sum = md5_hex _readfile($file) }
+			else                    { $sum = md5_hex _readfile($file, 'nocache') }
 
 			# --- build the file's datastruct ---
 			my $name = $prefix . $file;
@@ -332,6 +346,10 @@ sub _genHash {
 	# --- pop back to the old cwd ---
 	chdir $pushdir;
 
+	# --- trim and prune ---
+	_trimHash($hash)  if $options->{trim};
+	_pruneHash($hash) if $options->{prune};
+
 	return $hash;
 }
 
@@ -344,16 +362,54 @@ sub _fileFilter {
 	return 0;
 }
 
+# --- trim parent dirs and/or prune empty dirs ---
+sub _pruneHash { _trimHash(shift, 1) };
+sub _trimHash {
+	my ($hash, $prune) = @_;
+
+	# --- get a count of files, links and dirs in a dir ---
+	foreach my $file (values %$hash) {
+		$file->{touch} += 1;
+		# --- make sure all values are initialized ---
+		if ($file->{type} eq 'dir') {
+			$file->{count}->{'dir'}  ||= 0;
+			$file->{count}->{'file'} ||= 0;
+			$file->{count}->{'link'} ||= 0;
+		}
+		# --- get parent name and increment count by type ---
+		if ($file->{name} =~ m|^(.*?)/[^/]*$|) {
+			# --- get parent, initialize a new one if needed ---
+			my $parent = $hash->{$1} ||= {
+				name => $1, type => 'dir',
+				sum  => 0 x 32, mode => 0,
+				uid  => -1, gid  => -1,
+				count => { 'dir'  => 0, 'file' => 0, 'link' => 0 },
+			};
+			$parent->{count}->{$file->{type}}++;
+		}
+	}
+
+	# --- find all dirs eligible for pruning ---
+	foreach my $file (values %$hash) {
+		# --- ignore non-dirs ---
+		next unless $file->{type} eq 'dir';
+
+		# --- keep dirs at the end of a branch ---
+		next if $file->{count}->{'dir'} eq 0 && ! $prune;
+
+		# --- delete dirs with no files or links ---
+		delete $hash->{$file->{name}}
+			unless $file->{count}->{'file'} || $file->{count}->{'link'};
+	}
+
+	return $hash;
+}
+
 # --- determine the version of a manifest file ----
 sub _fileVersion {
 	my $filename = shift;
 
 	my $line = (split /\s*[\r\n]+\s*/, _readfile($filename))[0] || '';
-#	# --- read a line from the file ---
-#	my $fh = gensym(); open $fh, $filename  # open the file
-#		or return '';                        #    or return unknown
-#	my $line = <$fh>; chomp $line;          # read a line
-#	close $fh; ungensym($fh);               # close the file
 
 	# --- current version ---
 	return $::VERSION
@@ -385,9 +441,11 @@ sub _fileVersion {
 # --- read a file ---
 sub _readfile {
 	my $filename = shift || return undef;             # get filename (required)
+	my $params   = shift || '';
 
 	# --- don't read content twice ---
-	return $filebuffer->{$filename} if $filebuffer->{$filename};
+	return $filecache->{$filename}
+		if $filecache->{$filename};
 
 	# --- read the file as one block ---
 	my $fh = gensym(); open $fh, $filename or return undef;
@@ -395,7 +453,8 @@ sub _readfile {
 	close $fh; ungensym($fh);
 
 	# --- save the content to the buffer and return ---
-	$filebuffer->{$filename} = $content;
+	$filecache->{$filename} = $content
+		unless $params =~ /nocache/;
 	return $content;
 }
 
@@ -536,6 +595,8 @@ sub configure {
 
 		# --- general options ---
 		'filter|F=s',       # filter output by (f)iles, (d)irs and (l)inks
+		'trim|T+',          # trim parent directories
+		'prune|P+',         # prune parent and empty directories
 
 		# --- generate options ---
 		'generate|g+',      # generate a manifest
@@ -617,6 +678,8 @@ Commands (exactly one required):
 
 General Options:
    -F, --filter TYPE   show/manifest only (f)iles, (d)irs, (l)inks
+   -P, --prune         ignore parent and empty directories
+   -T, --trim          ignore parent directories
 
 Generate Options:
    -r, --recursive     recurse subdirectories
@@ -650,10 +713,10 @@ manifest - iTools manifest tool
 =head1 SYNOPSIS
 
  manifest {-?|--man}
- manifest generate [-rL] [-F TYPE] [-b DIR] [-p PATH]
+ manifest generate [-rLPT] [-F TYPE] [-b DIR] [-p PATH]
           [-O MANIFEST [-a]] [FILE|PATH|@LIST [...]]
- manifest list [-x] [-F TYPE] MANIFEST|@LIST [...]
- manifest diff [-ocunx] [-F TYPE] MANIFEST.OLD|@LIST MANIFEST.NEW|@LIST
+ manifest list [-xPT] [-F TYPE] MANIFEST|@LIST [...]
+ manifest diff [-ocunxPT] [-F TYPE] MANIFEST.OLD|@LIST MANIFEST.NEW|@LIST
 
 =head1 DESCRIPTION
 
@@ -695,12 +758,12 @@ If you invoke the command:
 
 the list of files in F<foo.mf> is sent to STDOUT.
 
-N<list> laso has a number fo filtering options.
-For a list all files in multiple manifests that are symlinks displayed along
+B<list> also has a number of filtering options.
+For a list of all files in multiple manifests that are symlinks displayed along
 with their extended information (MD5Sum, Type, Mode and UID:GID), you would
 execute the following:
 
-   manifest list --extended --links foo.mf bar.mf
+   manifest list --extended --filter l foo.mf bar.mf
 
 See the L<List Options> section below for a fill list of options.
 
@@ -850,7 +913,15 @@ use B<-v> to increase the verbosity.
 
 =over 4
 
-=item B<-o>, B<--old>; B<-c>, B<--changed>; B<-u>, B<--unchanged>; B<-n>, B<--new>; B<--all>
+=item B<-o>, B<--old>
+
+=item B<-c>, B<--changed>
+
+=item B<-u>, B<--unchanged>
+
+=item B<-n>, B<--new>
+
+=item B<--all>
 
 Filter results based on whether and how the file has changed:
 
@@ -900,6 +971,16 @@ Use any combination of the following single-character values to specify the type
    l  symlink
 
 If none of these flags are given, all are presumed.
+
+=item B<-T>, B<--trim>
+
+Removes 'parent' directories from the manifest.
+All non-empty directories with no files or links in the manifest are removed.
+
+=item B<-P>, B<--prune>
+
+Performs the same action as B<--trim>, except that empty
+directories are also removed.
 
 =item B<-?>, B<--help>; B<--man>
 
@@ -1033,6 +1114,19 @@ Consider other formats that may be even more parsable: Data::Dumper, YAML, etc.
 
 Add flags such as B<--sum>, B<--type>, B<--mode>, B<--uid> and B<--gid> for
 filtering based on change type.
+
+Note that this is already partly implemented (in sub configure()), but we may
+want to abandon the effort of using separate CLI flags for each change type
+in light of all the different information we could potentially store via the
+'Storable' method (see next item).
+Instead we may want a delimited list of types passed in through a single flag.
+
+=item TODO: B<Change default manifest storage type to 'Storable'>
+
+Use the Perl module 'Storable' for storing manifests in binary format.
+Because it is a binary format and we no longer have to worry about readability,
+the the entire stat hash for each file as well as
+other general information about the manifest (like version) can be stored.
 
 =back
 
