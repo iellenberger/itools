@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-our $VERSION="0.7.2";
+our $VERSION="0.7.3";
 
 # --- stuff to before any libraries are loaded ---
 BEGIN {
@@ -311,6 +311,7 @@ sub _genHash {
 
 		# --- and process each file/dir ---
 		foreach my $file (sort keys %$ls) {
+			next unless $ls->{$file};
 
 			# --- filter on type ---
 			next unless _fileFilter($ls->{$file});
@@ -481,6 +482,7 @@ sub _ls {
 
 		# --- get stats for file ---
 		my $stat = _filestat("$path/$file");
+		next unless $stat;
 		$list->{$stat->{name}} = $stat;
 
 		# --- recurse subdirs ---
@@ -502,7 +504,11 @@ sub _ls {
 # --- generate a hash from 'stat' ---
 sub _filestat {
 	my ($file, $stat) = (shift, {});
-	return unless $file; # return if no file
+
+	# --- return if no file or file does not exist --
+	return if !defined $file || $file eq '';
+	# --- return if file doesn't exist, but list broken symlinks pass ---
+	return if !-e $file && !-l $file;
 
 	# --- get keys and values ---
 	my @statkey = qw( dev inode mode numlink uid gid rdev size atime mtime ctime blocksize blocks );
