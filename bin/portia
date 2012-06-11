@@ -1,0 +1,465 @@
+#!/usr/bin/perl -w
+our $VERSION="0.0.1";
+
+# --- always library path first ---
+use FindBin qw( $Bin $RealBin );
+use lib ("$RealBin/../lib/perl5", "$Bin/../lib/perl5");
+
+use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
+use iTools::Script::Options;
+use iTools::System qw( chdir mkdir unlink pushdir popdir system command );
+use iTools::Verbosity qw( vprint vprintf verbosity );
+use Portia::Config;
+use Portia::Package;
+use Portia::Sources;
+use Portia::Tools qw( indent );
+use Switch;
+
+use strict;
+use warnings;
+
+# === CLI Options ===========================================================
+# --- load up all the options ---
+my $options = parse iTools::Script::Options(
+	Options => [
+		'deep|d+',
+		'repo|r=s',
+		'cr+',
+		'tags|tag|t=s@',
+		'all+',
+		'file|f=s',
+	],
+	MinArgs => 1,
+	UsageFormat => "COMMAND OPTIONS",
+	Usage => "
+		Commands:
+			dump      dump Portia's configuration
+			sync      sync Portia repositories
+			search    search for a package
+			push      push a pbuild to the repository
+			flush     flush repository caches
+
+		Options:
+			-r, --repo  perform actions against a specific repository
+			-d, --deep  deep sync sparse repositories or deep search packages
+			--cr        prefer continuous release (CR) versions
+	",
+);
+# --- lowercase and split all tags on whitespace ---
+$options->{tags} = [ grep { $_ } split /\s+/, lc join ' ', @{$options->{tags}} ]
+	if $options->{tags};
+# --- first arg is always the command ---
+my $command = lc shift @ARGV;
+
+# === Configuration and Globals =============================================
+# --- set base verbosity for iTools::System ---
+iTools::System::vbase(4);
+
+# --- if we have no tags, presume stable ---
+$options->{tags} = [ 'stable' ]
+	if !$options->{tags} && !$options->{all};
+
+# --- load global config ---
+my $config  = new Portia::Config;
+my $sources = new Portia::Sources(Repo => $options->{repo});
+
+# === Main Body of Code =====================================================
+
+# --- process commands ---
+switch ($command) {
+	case 'dump'    { dumpConfig(@ARGV) }
+	case 'sync'    { sync() }
+	case 'search'  { search(@ARGV) }
+	case 'show'    { show(@ARGV) }
+	case 'push'    { pushBuild(@ARGV) }
+	case 'flush'   { flushCaches() }
+	case 'build'   { build(@ARGV) }
+	case 'install' { install(@ARGV) }
+	else          { $options->usage("unknown command '$command'") }
+}
+
+exit 0;
+
+# === Command Processing ====================================================
+# --- dump ---
+sub dumpConfig {
+	my $query = shift;
+	my $version;
+
+	# --- get a version obj if we have a query ---
+	if ($query) {
+		$version = _getVersions($query);
+		$config->selectVersion($version);
+	}
+
+	print "Portia Configuration:\n";
+	print indent(3, $config->dumpConfig);
+	print "\nSources:\n";
+	print indent(3, $sources->dumpConfig);
+
+	if ($version) {
+		print "\n";
+		_showResults($version);
+	}
+}
+
+# --- sync ---
+sub sync { $sources->sync }
+
+# --- search and show packages ---
+sub search {
+	$sources->loadPackages;
+	my @versions = find Portia::Package(
+		query => shift,
+		depth => $options->{deep},
+		best  => !$options->verbosity,
+		cr    => $options->{cr},
+		tags  => $options->{tags},
+	);
+	_searchResults(@versions);
+}
+
+# --- search and show packages ---
+sub show {
+	$sources->loadPackages;
+	my @versions = find Portia::Package(
+		query => shift,
+		depth => $options->{deep},
+		best  => !$options->verbosity,
+		cr    => $options->{cr},
+		tags  => $options->{tags},
+	);
+	_showResults(@versions);
+}
+
+# --- flush ---
+sub flushCaches {
+	vprint 0, "Flushing source .store caches\n";
+	pushdir;
+	foreach my $repo (values %$sources) {
+		next unless -d $repo->root ."/packages";
+		chdir $repo->root;
+		vprint 1, ">flushing ". $repo->name ." : $repo->{description}\n";
+		foreach my $store (command "find packages -depth 3 -name '.store'") {
+			chomp $store;
+			unlink $store;
+		}
+	}
+	popdir;
+}
+
+# --- push ---
+sub pushBuild {
+	my ($pbuild, @files) = @_;
+	$pbuild ||= $options->{file};
+
+	# --- make sure we have a pbuild ---
+	$options->usage("'push' requires a pbuild file as a parameter")
+		unless $pbuild;
+	# --- make sure the pbuild file exists and is readable ---
+	unless (-e $pbuild) { vprint -2, "'$pbuild' does not exist\n"; exit 1; }
+	unless (-R $pbuild) { vprint -2, "'$pbuild' is not readable\n"; exit 1; }
+
+	# --- find the push repo ---
+	my $repo = findRepo Portia::Sources(
+		tags  => 'push',
+		sync  => 'live',
+		name  => $options->{repo},
+	);
+
+	# --- make sure we have a valid repo ---
+	unless ($repo) {
+		my $msg = $options->{repo} ? "source repository '$options->{repo}' is not" : "could not find";
+		vprint -2, "error: $msg a valid 'push' repository\n";
+		vprint -1, "\n'push' repositories must include these settings:\n\n".
+		           "   sync : live\n".
+		           "   tags : push\n".
+		           "   uri  : file:///some/path\n\n";
+		if (exists $sources->{$options->{repo}}) {
+			vprint 1, "The requested repository is configured as follows:\n\n".
+			          indent(3, $sources->{$options->{repo}}->dumpConfig()) ."\n";
+		}
+		vprint -1, "See the portia(1) manual page for details\n\n";
+		exit 1;
+	}
+
+	# --- make sure the repo has a valid URI ---
+	my $uri = new iTools::URI(URI => $repo->{uri});
+	my ($scheme, $repopath) = ($uri->scheme || '', $uri->path || '');
+	unless ($scheme eq 'file') {
+		my $msg = $scheme ? "invalid sync scheme '$scheme'" : "unknown sync scheme";
+		vprint -2, "error: $msg for source repository '". $repo->name ."'\n";
+		vprint -1, "   repository URI must have a scheme of 'file'\n".
+		           "   URI found: ". $uri->uri ."\n";
+		exit 1;
+	}
+
+	# --- load the pbuild ---
+	my $version = load Portia::Version(
+		Repo => $repo->name,
+		File => $pbuild,
+	);
+	$config->selectVersion($version);
+
+	# --- scrape a few vars ---
+	my $CP = $config->{CP};
+	my $PV = $config->{PV};
+	my $VR = $config->{VR};
+	my $pkgpath = $repopath ."/packages/". $CP;
+
+	# --- copy pbuild ---
+	vprint 0, "Pushing $CP-$VR to source repository '". $repo->name ."'\n";
+	mkdir $pkgpath;
+	system "cp $pbuild $pkgpath/$PV.pbuild";
+
+	# --- copy any additional files ---
+	if (@files) {
+		vprint 1, ">copying additional files\n";
+		mkdir "$pkgpath/files/$PV";
+		foreach my $file (@files) {
+			system "cp -a $file $pkgpath/files/$PV";
+		}
+	}
+
+	# --- generate package manifests and tarball ---
+	pushdir $pkgpath;
+	vprint 0, "Generating package manifest and tarball\n";
+	system "$RealBin/manifest -grfq -O .mf *";
+	system "tar c". (verbosity >= 4 ? 'v' : '') ."zf .tgz * .mf";
+
+	# --- generate repository list and tarball ---
+	if (-W "$repopath/packages") {
+		vprint 0, "Generating repository package list and tarball\n";
+		chdir "$repopath/packages";
+		system "find * -type d -depth 1 > .list";
+		system "tar c". (verbosity >= 4 ? 'v' : '') ."zf .tgz --exclude .tgz .list *";
+	}
+}
+
+# --- build ---
+sub build {
+	my $query = shift;
+
+	# --- make sure we have package name ---
+	$options->usage("'build' requires a package name as a parameter")
+		unless $query;
+
+	# --- get the version ---
+	my @versions = _getVersions($query);
+
+	# --- if we get more than one result, show packages and exit ---
+	if (@versions > 1) {
+		vprint -2, "Multiple packages matched, please refine your package name\n\n";
+		_searchResults(@versions);
+		exit 1;
+	}
+
+	my $version = shift @versions;
+	$config->selectVersion($version);
+
+	#print Dumper($version);
+
+	# --- run the build ---
+	system "
+		source \$LIB_ROOT/portia-build.sh
+		source ". $version->file() ."
+		#set -o xtrace
+		portia_build
+	";
+}
+
+# --- install ---
+sub install {
+	my $query = shift;
+
+	# --- make sure we have package name ---
+	$options->usage("'install' requires a package name as a parameter")
+		unless $query;
+
+	# --- get the version ---
+	my @versions = _getVersions($query);
+
+	# --- if we get more than one result, show packages and exit ---
+	if (@versions > 1) {
+		vprint -2, "Multiple packages matched, please refine your package name\n\n";
+		_searchResults(@versions);
+		exit 1;
+	}
+
+	my $version = shift @versions;
+	$config->selectVersion($version);
+
+	#print Dumper($version);
+
+	# --- run the install ---
+	system "
+		source \$LIB_ROOT/portia-install.sh
+		source ". $version->file() ."
+		#set -o xtrace
+		portia_install
+	";
+}
+
+# === Helper Functions ======================================================
+
+# --- display a list of packages/versions ---
+sub _searchResults {
+	my @versions = @_;
+	foreach my $version (@versions) {
+		if ($options->verbosity == 0) {
+			printf "%-30s %s\n", $version->pname ."-". $version->vname, $version->{DESCRIPTION} || '';
+		} elsif ($options->verbosity > 0) {
+			printf "%-12s: %-30s %s\n",
+				$version->rname,
+				$version->pname ."-". $version->vname,
+				$version->{DESCRIPTION} || '';
+		}
+	}
+}
+
+# --- display a detailed listing of packages/versions ---
+sub _showResults {
+	my @versions = @_;
+	foreach my $version (@versions) {
+		$config->selectVersion($version);
+		# --- map a bunch of values for convenience and to avoid undefs ---
+		#! NOTE: not my normal practice to shorten vars like this,
+		#!    but things would get too verbose otherwise
+		my %v;
+		map { $v{lc $_} = $config->{$_} || '' }
+			qw( C PV );
+		map { $v{lc $_} = $version->{$_} || '' }
+			qw( DESCRIPTION HOMEPAGE LONGDESC SRC_URI );
+
+		# --- nicely format the long description ---
+		if ($v{longdesc}) {
+			$v{longdesc} =~ s/^\s*(.*?)\s*$/$1/s;  # remove leading/trailing whitespace
+			$v{longdesc} =~ s/^[\t ]*/      /mg;   # indent the block of text
+			$v{longdesc} .= "\n";                  # re-add trailing newline
+		}
+
+		# --- a few other variables ---
+		$v{source}  = $version->rname;
+		$v{tags}    = join ' ', $version->tags;
+		$v{version} = join ' ', $config->{VR};
+
+		# --- display stuff ---
+		vprint 0, "$v{c}/$v{pv} : $v{description}\n";
+		foreach my $key (qw( homepage source tags version )) {
+			next unless defined $v{$key};
+			vprintf 0, "   %-8s : %s\n", $key, $v{$key};
+		}
+		vprint 0, "$v{longdesc}" if $v{longdesc};
+		vprint 0, "\n";
+	}
+}
+
+# --- get a version object from a query or pbuild file ---
+sub _getVersions {
+	my $query = shift;
+
+	# --- if the query is a filename, set --file ---
+	$options->{file} = $query
+		if $query && $query =~ /pbuild$/ && -e $query;
+
+	# --- show config for a unpushed pbuild ---
+	if ($options->{file}) {
+		# --- load the pbuild ---
+		return load Portia::Version(
+			File => $options->{file},
+		);
+	}
+	
+	# --- show config for a particular package ---
+	$sources->loadPackages;
+	return find Portia::Package(
+		query => $query,
+		best  => 1,
+		depth => 0,
+		cr    => $options->{cr},
+		tags  => $options->{tags},
+	);
+}
+
+=head1 NAME
+
+$PROGRAM - Ports inspired packagement management system
+
+=head1 SYNOPSIS
+
+ $SYNOPSIS
+ portia dump [QUERY|PBUILD]
+ portia sync
+ portis search
+ portia push
+ portia flush
+
+=head1 DESCRIPTION
+
+$PROGRAM is a package management system inspired by BSD Ports and Gentoo Portage.
+It is a lightweight package managemnt solution that allows organizations to
+manage custom packages for their own infrastructure.
+
+Primarilly written in Perl and Bash and designed to be customizable and extensible.
+
+=head1 COMMANDS
+
+=head2 dump [QUERY|PBUILD]
+
+=head2 sync
+
+=head2 search
+
+=head2 push
+
+=head2 flush
+
+=head1 OPTIONS
+
+=COREOPTS
+
+=head1 TODO, KNOWN ISSUES AND BUGS
+
+=over 4
+
+=item TODO: B<Lots>
+
+Still under heavy development
+
+=back
+
+=head1 REPORTING BUGS
+
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
+
+=head1 AUTHOR
+
+Written by Ingmar Ellenberger.
+
+=head1 COPYRIGHT
+
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
+or read the F<LICENSE> in the root of the iTools distribution.
+
+=head1 DEPENDENCIES
+
+=head2 Core Perl Modules
+
+Data::Dumper(3pm),
+Cwd(3pm),
+Digest::MD5(3pm),
+Getopt::Long(3pm),
+IO::File(3pm),
+Symbol(3pm),
+strict(3pm),
+warnings(3pm)
+
+=head1 SEE ALSO
+
+chmod(1),
+md5sum(1),
+perlre(1)
+
+=cut
