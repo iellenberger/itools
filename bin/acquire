@@ -1,0 +1,141 @@
+#!/usr/bin/perl -w
+our $VERSION="0.0.1";
+
+# --- always library path first ---
+use FindBin qw( $Bin $RealBin );
+use lib ("$RealBin/../lib/perl5", "$Bin/../lib/perl5");
+
+use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
+
+use iTools::Acquire qw( acquire acquireMessage );
+use iTools::File qw( writefile );
+use iTools::Script::Options;
+use iTools::URI;
+use iTools::Verbosity qw( vprint );
+
+use strict;
+use warnings;
+
+# === CLI Options ===========================================================
+# --- load up all the options ---
+my $options = parse iTools::Script::Options(
+	Options => [
+		'clobber|c!',
+		'uri=s',
+		'file=s',
+	],
+	Defaults => {
+		clobber   => 0,
+	},
+	MinArgs => 1,
+	UsageFormat => "[--noclobber] URI [FILE]",
+	Usage => "
+		--noclobber  don't overwrite the file if it already exists
+	",
+);
+# --- get the URI and filaname ----
+$options->{uri}  ||= shift @ARGV;
+$options->{file} ||= shift @ARGV;
+
+# === Main Body of Code =====================================================
+
+# --- --noclobber ---
+if ($options->{file} && -e $options->{file} && $options->{noclobber}) {
+	vprint 0, "$options->{file} already exists\n";
+	exit 0;
+}
+
+# --- acquire content ---
+my $content = acquire $options->{uri};
+# --- show error messages ---
+if (my $message = acquireMessage) {
+	vprint -1, "$message\n";
+	exit 1;
+}
+
+# --- write to file or STDOUT ---
+if ($options->{file}) {
+	vprint 0, "Writing $options->{uri}\n     to $options->{file}\n";
+	writefile $options->{file}, $content;
+} else {
+	print $content;
+}
+
+exit 0;
+
+=head1 NAME
+
+$PROGRAM - acquire content from a URI
+
+=head1 SYNOPSIS
+
+ $SYNOPSIS
+
+=head1 DESCRIPTION
+
+$PROGRAM fetches content from a URI and either writes it to a file or
+displays it on the screen.
+
+Supported protocols:
+
+	file://
+	http://
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--noclobber>
+
+In conjunction with FILE, it will abort rather then overwrite the FILE.
+
+Functionally equivelant to the following Bash code:
+
+   if [ -e $FILE ]; then
+      echo $FILE already exists
+      exit
+   else
+      acquire $URI $FILE
+   fi
+
+
+=COREOPTS
+
+=head1 TODO, KNOWN ISSUES AND BUGS
+
+=over 4
+
+=item TODO: B<Lots>
+
+Still under heavy development
+
+=back
+
+=head1 REPORTING BUGS
+
+Report bugs in the iTools' issue tracker at
+L<https://github.com/iellenberger/itools/issues>
+
+=head1 AUTHOR
+
+Written by Ingmar Ellenberger.
+
+=head1 COPYRIGHT
+
+Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
+or read the F<LICENSE> in the root of the iTools distribution.
+
+=head1 DEPENDENCIES
+
+=head2 Core Perl Modules
+
+Data::Dumper(3pm),
+strict(3pm),
+warnings(3pm)
+
+=head2 Other Perl Modules
+
+=head1 SEE ALSO
+
+=cut
