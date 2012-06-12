@@ -106,9 +106,16 @@ sub nofatal(&) {
 sub system {
 	my @cmd = @_;
 
+	# --- prepend shell to the command ---
+	if (exists $CONFIG->{shell} && defined $CONFIG->{shell}) {
+		my $shell = $CONFIG->{shell};
+		if (ref $shell eq 'ARRAY') { unshift @cmd, @$shell }
+		else                       { unshift @cmd, split /\s+/, $shell }
+	}
+
 	# --- run the command ---
 	vprint vbase(), color('c', "executing: ") . join(' ', @cmd) ."\n";
-	my $retval = system(qw( bash -c ), @cmd) == 0 && do {
+	my $retval = system(@cmd) == 0 && do {
 		# --- clean exit ---
 		vprint vbase() + 1, color('g', "command completed successfully") ."\n";
 		return 0;
