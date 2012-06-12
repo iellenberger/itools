@@ -108,7 +108,7 @@ sub system {
 
 	# --- run the command ---
 	vprint vbase(), color('c', "executing: ") . join(' ', @cmd) ."\n";
-	my $retval = system(@cmd) == 0 && do {
+	my $retval = system(qw( bash -c ), @cmd) == 0 && do {
 		# --- clean exit ---
 		vprint vbase() + 1, color('g', "command completed successfully") ."\n";
 		return 0;
