@@ -316,6 +316,7 @@ sub matches {
 # --- helper to get a list of dirs from a package tree ---
 sub _dirList {
 	my $path = shift;
+	return unless -d $path;
 	opendir DIRLIST, $path;
 	my @dirs = grep { -d "$path/$_" && /^[^\.]/ } readdir DIRLIST;
 	close DIRLIST;
