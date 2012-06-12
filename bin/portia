@@ -56,6 +56,8 @@ my $options = parse iTools::Script::Options(
 # --- lowercase and split all tags on whitespace ---
 $options->{tags} = [ grep { $_ } split /\s+/, lc join ' ', @{$options->{tags}} ]
 	if $options->{tags};
+push @{$options->{tags}}, 'cr' if $options->{cr};
+
 # --- first arg is always the command ---
 my $command = lc shift @ARGV;
 
@@ -70,6 +72,12 @@ $options->{tags} = [ 'stable' ]
 # --- load global config ---
 my $config  = new Portia::Config(Import => $options->{'import'});
 my $sources = new Portia::Sources(Repo => $options->{repo});
+
+# --- select the repo ---
+my $repo = $config->selectRepo($options->{repo})
+	if $options->{repo};
+
+#print Dumper($sources);
 
 # === Main Body of Code =====================================================
 
@@ -226,7 +234,7 @@ sub pushBuild {
 	my $pkgpath = $repopath ."/packages/". $CP;
 
 	# --- copy pbuild ---
-	vprint 0, "Pushing $CP-$VR to source repository '". $repo->name ."'\n";
+	vprint 0, "Pushing $CP-$VR to repository '". $repo->name ."'\n";
 	mkdir $pkgpath;
 	system "cp $pbuild $pkgpath/$PV.pbuild";
 
@@ -249,7 +257,7 @@ sub pushBuild {
 	if (-W "$repopath/packages") {
 		vprint 0, "Generating repository package list and tarball\n";
 		chdir "$repopath/packages";
-		system "find * -type d -mindepth 1 -maxdepth 1 > .list";
+		system "find * -mindepth 1 -maxdepth 1 -type d > .list";
 		system "tar c". (verbosity >= 4 ? 'v' : '') ."zf .tgz --exclude .tgz .list *";
 	}
 }
@@ -269,6 +277,11 @@ sub build {
 	if (@versions > 1) {
 		vprint -2, "Multiple packages matched, please refine your package name\n\n";
 		_searchResults(@versions);
+		exit 1;
+	}
+	# --- we need at least one version ---
+	unless (@versions) {
+		vprint -2, "Unable to match package '$query'\n\n";
 		exit 1;
 	}
 
@@ -299,6 +312,11 @@ sub install {
 	if (@versions > 1) {
 		vprint -2, "Multiple packages matched, please refine your package name\n\n";
 		_searchResults(@versions);
+		exit 1;
+	}
+	# --- we need at least one version ---
+	unless (@versions) {
+		vprint -2, "Unable to match package '$query'\n\n";
 		exit 1;
 	}
 
@@ -375,7 +393,7 @@ sub _getVersions {
 
 	# --- if the query is a filename, set --file ---
 	$options->{file} = $query
-		if $query && $query =~ /pbuild$/ && -e $query;
+		if $query && $query =~ /\.pbuild$/ && -e $query;
 
 	# --- show config for a unpushed pbuild ---
 	if ($options->{file}) {
