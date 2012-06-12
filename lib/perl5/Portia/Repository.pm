@@ -58,7 +58,18 @@ sub dumpConfig {
 	$text .= "$self->{name} : $self->{description}\n";
 	foreach my $key (sort keys %$self) {
 		next if $key =~ /^(?:_|\.|name)/;
-		my $value = ref $self->{$key} ? join ' ', @{$self->{$key}} : $self->{$key};
+
+		#my $value = ref $self->{$key} ? join ' ', @{$self->{$key}} : $self->{$key};
+		my $value = $self->{$key};
+		if (ref $self->{$key} eq 'ARRAY') {
+			$value = join ' ', @{$self->{$key}};
+		} elsif (ref $self->{$key} eq 'HASH') {
+			my $delim = "\n   ";
+			$value = $delim . join $delim, map {
+				$_ .'='. (defined $self->{$key}->{$_} ? $self->{$key}->{$_} : 'undef')
+			} keys %{$self->{$key}};
+		}
+
 		$text .= indent(3, sprintf "%-11s : %s\n", $key, $value)
 			if $value;
 	}
