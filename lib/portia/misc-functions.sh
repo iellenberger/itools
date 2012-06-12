@@ -16,7 +16,7 @@ mkdir_safe() {
 	local _DIR=$1; local _LABEL=$2
 
 	# --- make sure we have at least a fake label name ---
-	if [ -z $_LABEL ]; then $_LABEL='directory'; fi
+	if [ -z $_LABEL ]; then _LABEL='directory'; fi
 
 	# --- create the dir and its parents ---
 	if [ ! -e $_DIR ]; then
@@ -99,6 +99,8 @@ vrun() {
 run_fn() {
 	local _FUNCTION=$1
 	if [ "$( type -t $_FUNCTION )" == 'function' ]; then
-		$*
+		$* ||
+			echo "execution failed in function $_FUNCTION" &&
+			exit 1
 	fi
 }

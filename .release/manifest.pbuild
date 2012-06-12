@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# --- iTools manifest pbuild ---
+CATEGORY=sys-apps
+PACKAGE=manifest
+VERSION=0.7.3
+TAGS="stable"
+
+DESCRIPTION="Manifest generation tool"
+LONGDESC="
+	Manifest is a tool for generating, listing and diff'ing filesystem manifests.
+"
+HOMEPAGE="https://github.com/iellenberger/itools"
+
+SRC_URI="https://github.com/iellenberger/itools/tarball/$PACKAGE-$VERSION"
+#BIN_URI="file://$DISTFILES_DIR/$PVR.tgz"
+
+src_fetch() {
+	wget -q --no-check-certificate -O $PVR.tgz $SRC_URI
+}
+
+src_unpack() {
+	tar xzf $DOWNLOAD_DIR/$PVR.tgz --strip-components 1
+}
+
+src_install() {
+	# --- files to pack up for this 'release' ---
+	local FILES="
+		LICENSE
+		bin/manifest
+	"	
+
+	vecho 1 "      copying files"
+	vecho 2 "         from $PWD"
+	vecho 2 "         to $STAGE_DIR"
+	tar c $FILES | tar x -C $STAGE_DIR
+}
+
+bin_prepare() {
+	rm LICENSE
+}

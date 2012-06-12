@@ -5,8 +5,10 @@ use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::T
 use Config;
 use Cwd qw( abs_path );
 use FindBin qw( $Bin $RealBin );
+use iTools::Verbosity qw( vprint );
 use Portia::Tools qw( source uniq );
 use Storable qw( dclone );
+use Switch;
 
 use strict;
 use warnings;
@@ -24,8 +26,18 @@ sub new {
 	my ($this, %args) = @_;
 	my $self = $INSTANCE = bless {}, ref $this || $this;
 
-	# --- save the original env and load the sources files ---
+	# --- save the original env ---
 	$self->{_originalENV} = dclone(\%ENV);
+
+	# --- parse incoming parameters ---
+	while (my ($key, $value) = each %args) {
+		switch (lc $key) {
+			case m/^import/ { $self->importEnv($value) }
+			else            { $self->{$key} = $value }
+		}
+	}
+
+	# --- load the sources files ---
 	$self->reload;
 
 	return $self;
@@ -149,19 +161,25 @@ sub reload {
 
 	# --- reload original %ENV and clear current config ---
 	%ENV = %{$self->{_originalENV}} if $self->{_originalENV};
-	foreach my $key (keys %$self) { delete $self->{$key} }
-	#$self->importEnv;
+	foreach my $key (keys %$self) {
+		next if $key =~ /^_/;
+		delete $self->{$key} unless $self->{_hard}->{$key};
+	}
 
 	# --- set the verbosity ---
 	use iTools::Verbosity qw( verbosity );
 	$ENV{VERBOSITY} = verbosity;
+
+	# --- reload the imports ---
+	foreach my $key (keys %{$self->{_imports} || {}}) {
+		$self->hardSet($key => $self->{_imports}->{$key});
+	}
 
 	# --- reload everything ---
 	$self->_loadOS;
 	$self->_loadHardware;
 	$self->_loadEnv;
 
-	#$self->exportEnv;
 	return $self;
 }
 
@@ -242,7 +260,6 @@ sub _loadEnv {
 	$self->resolveAll;
 
 	# --- import configs ---
-	#! TODO: allow user specified path/file from CLI
 	foreach my $conf (split ':', $self->{ETC_PATH}) {
 		my $newvars = source { import => 0 }, "$conf/portia.conf";
 		$self->hardSet(%$newvars);
@@ -284,33 +301,12 @@ sub softSet {
 	}
 }
 
-use iTools::Term::ANSI qw( color );
-
 sub resolveAll {
 	my $self = shift;
 
-$self->{_depth} = 0;
 	delete $self->{_resolved};                # clear resolver cache
 	$self->resolve(keys %{$self->mapsHash});  # resolve all keys
 	delete $self->{_resolved};                # clear the cache again
-}
-
-sub kp {
-	my ($self, $key, @msg) = @_;
-
-	my $color;
-	if ($self->{_resolved}->{$key}) {
-		if (exists $self->{$key}) {
-			if (defined $self->{$key}) {
-				if ($self->{$key} =~ /^\s*$/) { $color = "*c" }  # blank
-				else                          { $color = "*g" }  # good
-			} else                           { $color = "*m" }  # undefined
-		} else                              { $color = "*r" }  # !exists
-	} else                                 { $color = "*y" }  # unresolved
-#	print(('    ' x $self->{_depth}) . color($color, $key));
-#	print " $self->{$key}" if defined $self->{$key};
-#	print ": ", color("*b", @msg) if @msg;
-#	print "\n";
 }
 
 sub resolve {
@@ -328,7 +324,6 @@ sub resolve {
 		# --- ignore keys already resolved ---
 		if ($self->{_resolved}->{$key}) {
 			$success = 0 unless defined $self->{$key};
-$self->kp($key, "already resolved");
 			next;
 		}
 
@@ -336,7 +331,6 @@ $self->kp($key, "already resolved");
 		if ($self->{_hard}->{$key}) {
 			$success = 0 unless defined $self->{$key};
 			$self->{_resolved}->{$key} = 1;
-$self->kp($key, "hard-set");
 			next;
 		}
 
@@ -347,10 +341,8 @@ $self->kp($key, "hard-set");
 		if (!$template) {
 			$success = exists $self->{$key} && defined $self->{$key} ? 1 : 0;
 			$self->{_resolved}->{$key} = 1;
-$self->kp($key, "blank template");
 			next;
 		}
-$self->kp($key, "template $template");
 
 		# --- split out keys in template ---
 		my @parts = grep { $_ } split /[^A-Z_]+/, $template;
@@ -360,11 +352,9 @@ $self->kp($key, "template $template");
 
 		# --- resolve keys in template ---
 		my $resolved = $self->resolve(@parts);
-#print "resolved parts ($resolved) : ". join(' ', @parts) ."\n";
 
 		# --- special case for 'PVR' ---
 		if ($key eq 'VR' && !$resolved && $self->resolve('V')) {
-$self->kp($key, "VR = V special case");
 			$resolved = 1;
 			$self->softSet(VR => $self->{V});
 			next;
@@ -373,28 +363,65 @@ $self->kp($key, "VR = V special case");
 		# --- if template keys didn't resolve, don't render the template ---
 		unless ($resolved) {
 			$success = 0;
-$self->kp($key, "unresolved template");
 			next;
 		}
 
 		# --- replace keys in template and set the key in self ---
 		foreach my $part (@parts) { $template =~ s/$part/$self->{$part}/ }
 		$self->softSet($key => $template);
-$self->kp($key, "resolved");
 	}
 
-$self->{_depth}--;
 	return $success;
 }
 
 sub selectVersion {
 	my ($self, $version) = (_self(shift), shift);
 
-#print Dumper($version);
 	$self->hardSet(%$version);
+
 	$self->resolveAll;
 
 	return $version;
+}
+
+# --- import environment variables ---
+sub importEnv {
+	my $self = shift;
+
+	# --- build the parameter list ---
+	my @params;
+	foreach my $param (@_) {
+		next unless defined $param;
+
+		# --- parameter is an array ref ---
+		if (ref $param eq 'ARRAY') {
+			push @params, @$param;
+		}
+		# --- praameter is a hash ref ---
+		elsif (ref $param eq 'HASH') {
+			while (my ($key, $value) = each %$param) {
+				push @params, "$key=$value";
+			}
+		}
+		# --- parameter is a string ---
+		else {
+			push @params, $param;
+		}
+	}
+
+	foreach my $param (@params) {
+		my ($key, $value) = ($param =~ /^(\w+)(?:=(.*?))?$/);
+		unless ($key) {
+			vprint -1, "invalid key in import";
+			exit 1;
+		}
+
+		$value = $ENV{$key}
+			unless $value;
+
+		$self->hardSet($key => $value);
+		$self->{_imports}->{$key} = $value;
+	}
 }
 
 # === Private Methods and Functions =========================================

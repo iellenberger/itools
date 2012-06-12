@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# --- Portia pbuild, stable version ---
+CATEGORY=sys-apps
+PACKAGE=portia
+VERSION=0.2.0
+REVISION=CR
+
+DESCRIPTION="Ports inspired packagement management system"
+LONGDESC="
+	Portia is a package management system inspired by BSD Ports and Gentoo Portage.
+	It is a lightweight package managemnt solution that allows organizations to
+	manage custom packages for their own infrastructure.
+
+	Primarilly written in Perl and Bash, it is highly customizable and easilly extensible.
+"
+HOMEPAGE="https://github.com/iellenberger/itools"
+SRC_URI="file://$PR/var/releases/$PVR.tgz"
+
+#src_unpack() {
+#	mkdir -p $WD; chdir $WD
+#
+#	# --- get the core files ---
+#	tar c -C $DD/$PVR.tgz $SRC_FILES | tar x
+#}
+
+#src_prepare() {
+#	# --- create any custom overlays ---
+#	if [ -e $PACKAGE_ROOT/files/overlay.sh ]; then
+#		$PACKAGE_ROOT/files/overlay.sh
+#	fi
+#}
+
+#src_configure() { }
+#src_compile() { }
+#src_test() { }
+#src_install() { }
+
+# --- this is the wrapper method for all other src_...() functions ---
+build() {
+
+#	mkdir -p $
+#	cd 
+	
+#	# --- get the core files ---
+#	tar c -C $SRC_ROOT $SRC_FILES | tar x
+#
+#	# --- create any custom overlays ---
+#	if [ -e $PACKAGE_ROOT/files/overlay.sh ]; then
+#		$PACKAGE_ROOT/files/overlay.sh
+#	fi
+#	
+#	# --- this is the direct copy-from-repo method ---
+#	INSTALLDIR=/sa/opt/$PNAME/$PNAME-$PVER
+#
+#	./configure --prefix=$INSTALLDIR
+#	make
+#	make install
+}
+
+#install() { }
+#package() { }
+

@@ -2,8 +2,8 @@
 
 # === Core Install Script for Portia ========================================
 
-# --- add portia's lib dir to the path ---
-export PATH=$LIB_ROOT:$PATH
+# --- add portia's bin and lib dirs to the path ---
+export PATH=$BIN_ROOT/bin:$LIB_ROOT:$PATH
 
 # --- import functions ---
 source $LIB_ROOT/misc-functions.sh
@@ -14,19 +14,34 @@ source $LIB_ROOT/misc-functions.sh
 # fetches the binary tarballs if defined in BIN_URI
 # Initial working directory: DOWNLOAD_DIR
 bin_fetch() {
-	# --- don't do anything if there's no $BIN_URI ---
-	if [ -z $BIN_URI ]; then return; fi
-
 	# --- localize variables ---
 	local _BINARY
 
-	# --- fetch each source file ---
-	for _BINARY in $BIN_URI; do
-		vecho 1 "      fetching $PVR.tgz"
-		vecho 2 "         from $_BINARY"
-		vecho 2 "         to $DOWNLOAD_DIR"
-		acquire --noclobber -q $_BINARY $DOWNLOAD_DIR/$PVR.tgz
-	done
+	# --- only fetch if we havn't already done so ---
+	if [ ! -e $DISTFILES_DIR/$PVR.tgz ]; then
+		# --- die if we can't locate a binary tarball ---
+		if [ -z $BIN_URI ]; then
+			vecho -1
+			vecho -1 "Unable to locate binary tarball(s)";
+			vecho 0 "The package does not have a BIN_URI defined"
+			vecho 0 "   and has not been locally built"
+			exit 1
+		fi
+
+		# --- fetch each source file ---
+		for _BINARY in $BIN_URI; do
+			vecho 1 "      fetching $PVR.tgz"
+			vecho 2 "         from $_BINARY"
+			vecho 2 "         to $DOWNLOAD_DIR"
+			acquire --noclobber -q $_BINARY $DOWNLOAD_DIR/$PVR.tgz
+		done
+
+	# --- just link the tarball if we already have it locally ---
+	else
+		vecho 1 "      found cached $PVR.tgz"
+		vecho 2 "         symlinking to $DOWNLOAD_DIR"
+		ln -s $DISTFILES_DIR/$PVR.tgz $DOWNLOAD_DIR/$PVR.tgz
+	fi
 }
 
 # --- unpack the binary tarballs ---
@@ -89,37 +104,39 @@ bin_install() {
 	mkdir_safe $DB_DIR 'DB_DIR'
 
 	# -- copy changed files from live to stage ---
-	vecho 2 "         saving changed files"
+	vecho 1 "      saving changed files"
 	for _FILE in `manifest diff --changed current.mf live.mf`; do
 		if [ -e $STAGE_DIR/$_FILE ]; then
-			vecho 3 "            file '$_FILE' changed"
+			vecho 2 "         file '$_FILE' changed"
 			mv $STAGE_DIR/$_FILE $STAGE_DIR/$_FILE.new
 			cp $INSTALL_ROOT/$_FILE $STAGE_DIR/$_FILE
 		fi
 	done
 
 	# --- remove deleted files from live ---
-	vecho 2 "         removing deleted files"
+	vecho 1 "      removing deleted files"
 	for _FILE in `manifest diff -oF fl current.mf stage.mf`; do
-		vecho 3 "            deleting '$_FILE'"
+		vecho 2 "         deleting '$_FILE'"
 		rm -f $INSTALL_ROOT/$_FILE
 	done
 
 	# --- remove empty directories from live ---
-	vecho 2 "         removing empty directories"
+	vecho 1 "      removing empty directories"
 	for _DIR in `manifest list -F d current.mf`; do
 		if [ -d $_DIR ] && [ -n "$( ls -A $_DIR )" ]; then
-			vecho 3 "            deleting '$_DIR/'"
+			vecho 2 "         deleting '$_DIR/'"
 			rmdir $_DIR
 		fi
 	done
 	
 	# --- install files ---
-	vecho 2 "         installing files"
+	vecho 1 "      installing files"
+	vecho 2 "         to $INSTALL_ROOT"
 	rsync -a $STAGE_DIR/ $INSTALL_ROOT/
 	
 	# --- copy stage manifest to DB_DIR ---
-	vecho 2 "         saving new manifest"
+	vecho 1 "      saving new manifest"
+	vecho 2 "         in $DB_DIR"
 	cp stage.mf $DB_DIR/$PVR.mf
 	ln -f $DB_DIR/$PVR.mf $DB_DIR/current.mf
 }
@@ -160,7 +177,7 @@ portia_install() {
 	cd "$STAGE_DIR"; vrun 0 "   preparing binaries" bin_prepare
 
 	# --- installation scripts ---
-	cd "$STAGE_DIR"; vrun 0 "   running pre-installaion script" bin_preinstall
+	cd "$STAGE_DIR"; vrun 0 "   running pre-installation script" bin_preinstall
 	cd "$PWORK_DIR"; vrun 0 "   generating manifests" bin_manifest
 	cd "$PWORK_DIR"; vrun 0 "   running installation script" bin_install
 	cd "$STAGE_DIR"; vrun 0 "   running post-installaion script" bin_postinstall

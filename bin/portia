@@ -22,12 +22,15 @@ use warnings;
 # --- load up all the options ---
 my $options = parse iTools::Script::Options(
 	Options => [
-		'deep|d+',
-		'repo|r=s',
-		'cr+',
-		'tags|tag|t=s@',
-		'all+',
-		'file|f=s',
+		'deep|d+',        # deep sync/search
+		'repo|r=s',       # specify a particular repo
+		'tags|tag|t=s@',  # match given tags
+		'cr+',            # match tag 'cr'
+		'all+',           # match all tags (i.e. all packages)
+		'import|i=s@',    # import environment variables
+
+		#! TODO: this option may be redundant - consider removing it
+		'file|f=s',       # hidden option
 	],
 	MinArgs => 1,
 	UsageFormat => "COMMAND OPTIONS",
@@ -38,11 +41,16 @@ my $options = parse iTools::Script::Options(
 			search    search for a package
 			push      push a pbuild to the repository
 			flush     flush repository caches
+			show      show package details
+			build     build package from source
+			install   install package
 
 		Options:
-			-r, --repo  perform actions against a specific repository
-			-d, --deep  deep sync sparse repositories or deep search packages
-			--cr        prefer continuous release (CR) versions
+			-r, --repo REPO  perform actions against a specific repository
+			-d, --deep       deep sync sparse repositories or deep search packages
+			--cr             prefer continuous release (CR) versions
+			-t, --tags TAGS  match packages with given tags
+			--all
 	",
 );
 # --- lowercase and split all tags on whitespace ---
@@ -60,7 +68,7 @@ $options->{tags} = [ 'stable' ]
 	if !$options->{tags} && !$options->{all};
 
 # --- load global config ---
-my $config  = new Portia::Config;
+my $config  = new Portia::Config(Import => $options->{'import'});
 my $sources = new Portia::Sources(Repo => $options->{repo});
 
 # === Main Body of Code =====================================================
@@ -81,14 +89,24 @@ switch ($command) {
 exit 0;
 
 # === Command Processing ====================================================
-# --- dump ---
+# --- command: dump ---
 sub dumpConfig {
 	my $query = shift;
 	my $version;
 
 	# --- get a version obj if we have a query ---
 	if ($query) {
-		$version = _getVersions($query);
+		# --- get the version ---
+		my @versions = _getVersions($query);
+
+		# --- if we get more than one result, show packages and exit ---
+		if (@versions > 1) {
+			vprint -2, "Multiple packages matched, please refine your package name\n\n";
+			_searchResults(@versions);
+			exit 1;
+		}
+
+		my $version = shift @versions;
 		$config->selectVersion($version);
 	}
 
@@ -103,10 +121,10 @@ sub dumpConfig {
 	}
 }
 
-# --- sync ---
+# --- command: sync ---
 sub sync { $sources->sync }
 
-# --- search and show packages ---
+# --- command: search ---
 sub search {
 	$sources->loadPackages;
 	my @versions = find Portia::Package(
@@ -119,7 +137,7 @@ sub search {
 	_searchResults(@versions);
 }
 
-# --- search and show packages ---
+# --- command: show ---
 sub show {
 	$sources->loadPackages;
 	my @versions = find Portia::Package(
@@ -132,7 +150,7 @@ sub show {
 	_showResults(@versions);
 }
 
-# --- flush ---
+# --- command: flush ---
 sub flushCaches {
 	vprint 0, "Flushing source .store caches\n";
 	pushdir;
@@ -148,7 +166,7 @@ sub flushCaches {
 	popdir;
 }
 
-# --- push ---
+# --- command: push ---
 sub pushBuild {
 	my ($pbuild, @files) = @_;
 	$pbuild ||= $options->{file};
@@ -236,7 +254,7 @@ sub pushBuild {
 	}
 }
 
-# --- build ---
+# --- command: build ---
 sub build {
 	my $query = shift;
 
@@ -257,8 +275,6 @@ sub build {
 	my $version = shift @versions;
 	$config->selectVersion($version);
 
-	#print Dumper($version);
-
 	# --- run the build ---
 	system "
 		source \$LIB_ROOT/portia-build.sh
@@ -268,7 +284,7 @@ sub build {
 	";
 }
 
-# --- install ---
+# --- command: install ---
 sub install {
 	my $query = shift;
 
@@ -286,14 +302,13 @@ sub install {
 		exit 1;
 	}
 
+	# --- select the version ---
 	my $version = shift @versions;
 	$config->selectVersion($version);
 
-	#print Dumper($version);
-
 	# --- run the install ---
 	system "
-		source \$LIB_ROOT/portia-install.sh
+		source $ENV{LIB_ROOT}/portia-install.sh
 		source ". $version->file() ."
 		#set -o xtrace
 		portia_install
@@ -388,11 +403,14 @@ $PROGRAM - Ports inspired packagement management system
 =head1 SYNOPSIS
 
  $SYNOPSIS
- portia dump [QUERY|PBUILD]
- portia sync
- portis search
- portia push
- portia flush
+ portia build    PACKAGE|PBUILD
+ portia install  PACKAGE|PBUILD
+ portia sync [-r REPO]
+ portis search [-r REPO] [-t TAG(s)|--cr|--all] QUERY
+ portia show {search options} QUERY|PACKAGE|PBUILD
+ portia dump {search options} QUERY|PBUILD
+ portia push [-r REPO] PACKAGE|PBUILD
+ portia flush [-r REPO]
 
 =head1 DESCRIPTION
 

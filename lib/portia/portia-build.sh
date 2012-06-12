@@ -2,8 +2,8 @@
 
 # === Core Build script for Portia ==========================================
 
-# --- add portia's lib dir to the path ---
-export PATH=$LIB_ROOT:$PATH
+# --- add portia's bin and lib dirs to the path ---
+export PATH=$BIN_ROOT/bin:$LIB_ROOT:$PATH
 
 # --- import functions ---
 source $LIB_ROOT/misc-functions.sh
@@ -83,7 +83,7 @@ src_pack() {
 
 # --- build phase ---
 portia_build() {
-	vecho 0 "Building $C/$PVR"
+	vecho 0 "Building $CATEGORY/$PVR"
 
 	# --- fetch the source ---
 	mkdir -p "$DOWNLOAD_DIR"; cd "$DOWNLOAD_DIR"

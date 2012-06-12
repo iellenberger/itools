@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# --- Portia pbuild, development version ---
+CATEGORY=sys-apps
+PACKAGE=portia-mega
+VERSION=0.0.1
+TAGS="unstable cr"
+
+#DEPEND="itools manifest portia"
+DEPEND="
+	manifest-0.7.3
+	itools-1.0.1
+"
+
+DESCRIPTION="Ports inspired packagement management system"
+LONGDESC="
+	Portia is a package management system inspired by BSD Ports and Gentoo Portage.
+	It is a lightweight package managemnt solution that allows organizations to
+	manage custom packages for their own infrastructure.
+
+	Primarilly written in Perl and Bash, it is highly customizable and easilly extensible.
+
+	portia-mega creates a single tarball of portia and all its dependants so you can
+	easilly install portia by simply unpacking a single tarball
+"
+HOMEPAGE="https://github.com/iellenberger/itools"
+
+# --- no source to fetch ---
+src_fetch() { return 0; }
+
+# --- installing DEPENDs to our WORK_DIR ---
+src_unpack() {
+
+	local _PACKAGE
+
+	for _PACKAGE in $DEPEND; do
+		portia install $_PACKAGE -i INSTALL_ROOT=$WORK_DIR
+	done
+}
+
+src_install() {
+	vecho 1 "      copying files"
+	vecho 2 "         from $PWD"
+	vecho 2 "         to $STAGE_DIR"
+	cp -a * $STAGE_DIR
+}
+
+portia_install() {
+	vecho -1 "'install' is not a valid target for $PACKAGE";
+}
