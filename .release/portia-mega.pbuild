@@ -3,26 +3,21 @@
 # --- Portia pbuild, development version ---
 CATEGORY=sys-apps
 PACKAGE=portia-mega
-VERSION=0.0.1
-TAGS="unstable cr"
+VERSION=0.0.2
+TAGS="stable"
 
 #DEPEND="itools manifest portia"
 DEPEND="
-	manifest-0.7.3
-	itools-1.0.1
-	portia-0.0.1
+	manifest-0.7.4
+	itools-1.0.2
+	portia-0.0.2
 "
 
-DESCRIPTION="Ports inspired packagement management system"
+DESCRIPTION="Portia mega-build"
 LONGDESC="
-	Portia is a package management system inspired by BSD Ports and Gentoo Portage.
-	It is a lightweight package managemnt solution that allows organizations to
-	manage custom packages for their own infrastructure.
-
-	Primarilly written in Perl and Bash, it is highly customizable and easilly extensible.
-
-	portia-mega creates a single tarball of Portia and all its dependants so you can
-	easilly install Portia by simply unpacking a single tarball
+	portia-mega creates a single tarball of Portia and all its dependants
+	(Portia, iTools, Manifest) so you can install Portia by simply unpacking
+	a single tarball
 "
 HOMEPAGE="https://github.com/iellenberger/itools"
 
@@ -31,12 +26,13 @@ src_fetch() { return 0; }
 
 # --- installing DEPENDs to our WORK_DIR ---
 src_unpack() {
-
 	local _PACKAGE
 
 	for _PACKAGE in $DEPEND; do
-		echo portia install $_PACKAGE -i INSTALL_ROOT=$WORK_DIR -i DB_ROOT=$WORK_DIR/var/lib/portia/db
-		portia install $_PACKAGE -i INSTALL_ROOT=$WORK_DIR -i DB_ROOT=$WORK_DIR/var/lib/portia/db
+		portia install $_PACKAGE \
+			--verbosity $VERBOSITY \
+			--import INSTALL_ROOT=$WORK_DIR \
+			--import DB_ROOT=$WORK_DIR/var/lib/portia/db
 	done
 }
 
@@ -45,8 +41,6 @@ src_install() {
 	vecho 2 "         from $PWD"
 	vecho 2 "         to $STAGE_DIR"
 	cp -a * $STAGE_DIR
-
-	#! TODO: copy current manifests for dependant packages
 }
 
 portia_install() {
