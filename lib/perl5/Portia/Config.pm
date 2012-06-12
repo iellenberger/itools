@@ -5,7 +5,9 @@ use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::T
 use Config;
 use Cwd qw( abs_path );
 use FindBin qw( $Bin $RealBin );
+use iTools::File qw( readfile );
 use iTools::Verbosity qw( vprint );
+use Portia::Sources;
 use Portia::Tools qw( source uniq );
 use Storable qw( dclone );
 use Switch;
@@ -378,10 +380,32 @@ sub selectVersion {
 	my ($self, $version) = (_self(shift), shift);
 
 	$self->hardSet(%$version);
-
 	$self->resolveAll;
 
 	return $version;
+}
+
+sub selectRepo {
+	my ($self, $repo) = (_self(shift), shift);
+
+	# --- load the repo by name if we didn't get an object ---
+	$repo = findRepo Portia::Sources(Name => $repo)
+		unless ref $repo eq 'Portia::Repo';
+
+	# --- throw error of not a repo object ---
+	unless (ref $repo eq 'Portia::Repository') {
+		vprint -1, "Unable to select repository $repo";
+		vprint 0, "not a valid repository";
+		exit 1;
+	}
+
+	# --- load the vars ---
+	if (exists $repo->{env}) {
+		$self->hardSet(%{$repo->{env}});
+		$self->resolveAll;
+	}
+
+	return $repo;
 }
 
 # --- import environment variables ---
