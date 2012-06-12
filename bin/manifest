@@ -140,7 +140,7 @@ sub _writeline {
 	# --- generate the line ---
 	my $line = '';
 	$line .= "$flag " if defined $flag;
-	$line .= sprintf "%s %-4s %04o %5d:%-5d", $hash->{sum}, $hash->{type}, $hash->{mode}, $hash->{uid}, $hash->{gid}
+	$line .= sprintf "%s %-4s %04o %5d:%-5d ", $hash->{sum}, $hash->{type}, $hash->{mode}, $hash->{uid}, $hash->{gid}
 		if $options->{extended};
 	$line .= _normpath($hash->{name}) ."\n";
 
