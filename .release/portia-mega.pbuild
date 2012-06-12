@@ -10,6 +10,7 @@ TAGS="unstable cr"
 DEPEND="
 	manifest-0.7.3
 	itools-1.0.1
+	portia-0.0.1
 "
 
 DESCRIPTION="Ports inspired packagement management system"
@@ -20,8 +21,8 @@ LONGDESC="
 
 	Primarilly written in Perl and Bash, it is highly customizable and easilly extensible.
 
-	portia-mega creates a single tarball of portia and all its dependants so you can
-	easilly install portia by simply unpacking a single tarball
+	portia-mega creates a single tarball of Portia and all its dependants so you can
+	easilly install Portia by simply unpacking a single tarball
 "
 HOMEPAGE="https://github.com/iellenberger/itools"
 
@@ -34,7 +35,8 @@ src_unpack() {
 	local _PACKAGE
 
 	for _PACKAGE in $DEPEND; do
-		portia install $_PACKAGE -i INSTALL_ROOT=$WORK_DIR
+		echo portia install $_PACKAGE -i INSTALL_ROOT=$WORK_DIR -i DB_ROOT=$WORK_DIR/var/lib/portia/db
+		portia install $_PACKAGE -i INSTALL_ROOT=$WORK_DIR -i DB_ROOT=$WORK_DIR/var/lib/portia/db
 	done
 }
 
@@ -43,6 +45,8 @@ src_install() {
 	vecho 2 "         from $PWD"
 	vecho 2 "         to $STAGE_DIR"
 	cp -a * $STAGE_DIR
+
+	#! TODO: copy current manifests for dependant packages
 }
 
 portia_install() {

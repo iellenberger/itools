@@ -3,8 +3,8 @@
 # --- Portia pbuild, stable version ---
 CATEGORY=sys-apps
 PACKAGE=portia
-VERSION=0.2.0
-REVISION=CR
+VERSION=0.0.1
+REVISION="cr"
 
 DESCRIPTION="Ports inspired packagement management system"
 LONGDESC="
@@ -15,49 +15,32 @@ LONGDESC="
 	Primarilly written in Perl and Bash, it is highly customizable and easilly extensible.
 "
 HOMEPAGE="https://github.com/iellenberger/itools"
-SRC_URI="file://$PR/var/releases/$PVR.tgz"
 
-#src_unpack() {
-#	mkdir -p $WD; chdir $WD
-#
-#	# --- get the core files ---
-#	tar c -C $DD/$PVR.tgz $SRC_FILES | tar x
-#}
+SRC_URI="https://github.com/iellenberger/itools/tarball/$PACKAGE-$VERSION"
 
-#src_prepare() {
-#	# --- create any custom overlays ---
-#	if [ -e $PACKAGE_ROOT/files/overlay.sh ]; then
-#		$PACKAGE_ROOT/files/overlay.sh
-#	fi
-#}
-
-#src_configure() { }
-#src_compile() { }
-#src_test() { }
-#src_install() { }
-
-# --- this is the wrapper method for all other src_...() functions ---
-build() {
-
-#	mkdir -p $
-#	cd 
-	
-#	# --- get the core files ---
-#	tar c -C $SRC_ROOT $SRC_FILES | tar x
-#
-#	# --- create any custom overlays ---
-#	if [ -e $PACKAGE_ROOT/files/overlay.sh ]; then
-#		$PACKAGE_ROOT/files/overlay.sh
-#	fi
-#	
-#	# --- this is the direct copy-from-repo method ---
-#	INSTALLDIR=/sa/opt/$PNAME/$PNAME-$PVER
-#
-#	./configure --prefix=$INSTALLDIR
-#	make
-#	make install
+src_fetch() {
+	wget -q --no-check-certificate -O $PVR.tgz $SRC_URI
 }
 
-#install() { }
-#package() { }
+src_unpack() {
+	tar xzf $DOWNLOAD_DIR/$PVR.tgz --strip-components 1
+}
 
+src_install() {
+	# --- files to pack up for this 'release' ---
+	local FILES="
+		LICENSE
+		bin/portia
+		etc/portia
+		lib/portia
+		lib/perl5/Portia/*.pm
+	"
+	vecho 1 "      copying files"
+	vecho 2 "         from $PWD"
+	vecho 2 "         to $STAGE_DIR"
+	tar c $FILES | tar x -C $STAGE_DIR
+}
+
+bin_prepare() {
+	rm LICENSE
+}
