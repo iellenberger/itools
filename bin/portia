@@ -64,6 +64,8 @@ my $command = lc shift @ARGV;
 # === Configuration and Globals =============================================
 # --- set base verbosity for iTools::System ---
 iTools::System::vbase(4);
+# --- make sure system() always uses bash ---
+iTools::System::config(shell => [ qw( bash -c ) ]);
 
 # --- if we have no tags, presume stable ---
 $options->{tags} = [ 'stable' ]
