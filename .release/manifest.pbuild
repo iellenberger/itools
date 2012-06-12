@@ -3,7 +3,7 @@
 # --- iTools manifest pbuild ---
 CATEGORY=sys-apps
 PACKAGE=manifest
-VERSION=0.7.3
+VERSION=0.7.4
 TAGS="stable"
 
 DESCRIPTION="Manifest generation tool"

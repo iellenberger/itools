@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-our $VERSION="0.7.3";
+our $VERSION="0.7.4";
 
 # --- stuff to before any libraries are loaded ---
 BEGIN {
