@@ -158,7 +158,7 @@ sub flushCaches {
 		next unless -d $repo->root ."/packages";
 		chdir $repo->root;
 		vprint 1, ">flushing ". $repo->name ." : $repo->{description}\n";
-		foreach my $store (command "find packages -depth 3 -name '.store'") {
+		foreach my $store (command "find packages -mindepth 3 -maxdepth 3 -name '.store'") {
 			chomp $store;
 			unlink $store;
 		}
@@ -249,7 +249,7 @@ sub pushBuild {
 	if (-W "$repopath/packages") {
 		vprint 0, "Generating repository package list and tarball\n";
 		chdir "$repopath/packages";
-		system "find * -type d -depth 1 > .list";
+		system "find * -type d -mindepth 1 -maxdepth 1 > .list";
 		system "tar c". (verbosity >= 4 ? 'v' : '') ."zf .tgz --exclude .tgz .list *";
 	}
 }
