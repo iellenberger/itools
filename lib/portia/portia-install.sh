@@ -37,7 +37,7 @@ bin_fetch() {
 		vecho 1 "      fetching $_BINFILE"
 		vecho 2 "         from $_SOURCE"
 		vecho 2 "         to $DOWNLOAD_DIR"
-		acquire --noclobber -v $_SOURCE $DOWNLOAD_DIR
+		acquire --noclobber -q $_SOURCE $DOWNLOAD_DIR
 
 		# --- die on error ---
 		if [ $? -gt 0 ]; then
