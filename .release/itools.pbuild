@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# --- iTools manifest pbuild ---
+# --- iTools pbuild ---
 CATEGORY=dev-perl
 PACKAGE=itools
-VERSION=1.0.2
+VERSION=1.0.3
 TAGS="stable"
 
 DESCRIPTION="Ingmar's Tools"
@@ -11,12 +11,10 @@ LONGDESC="
 	iTools is a set of tools and libraries that make hard things easier.
 "
 HOMEPAGE="https://github.com/iellenberger/itools"
-
-SRC_URI="https://github.com/iellenberger/itools/tarball/$PACKAGE-$VERSION"
-#BIN_URI="file://$DISTFILES_DIR/$PVR.tgz"
+SRCFILES="https://github.com/iellenberger/itools/tarball/$PACKAGE-$VERSION"
 
 src_fetch() {
-	wget -q --no-check-certificate -O $PVR.tgz $SRC_URI
+	wget -q --no-check-certificate -O $PVR.tgz $SRCFILES
 }
 
 src_unpack() {
