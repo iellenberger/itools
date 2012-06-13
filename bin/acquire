@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-our $VERSION="0.0.1";
+our $VERSION="0.0.2";
 
 # --- always library path first ---
 use FindBin qw( $Bin $RealBin );
@@ -21,11 +21,11 @@ use warnings;
 my $options = parse iTools::Script::Options(
 	Options => [
 		'clobber|c!',
-		'uri=s',
-		'file=s',
+		'uri|u=s',
+		'out|output|write|w|o:s',
 	],
 	Defaults => {
-		clobber   => 0,
+		clobber   => 1,
 	},
 	MinArgs => 1,
 	UsageFormat => "[--noclobber] URI [FILE]",
@@ -33,19 +33,51 @@ my $options = parse iTools::Script::Options(
 		--noclobber  don't overwrite the file if it already exists
 	",
 );
-# --- get the URI and filaname ----
-$options->{uri}  ||= shift @ARGV;
-$options->{file} ||= shift @ARGV;
+
+# --- get the URI and output file/dir ---
+$options->{uri} ||= shift @ARGV;
+$options->{out} = shift @ARGV
+	if !exists $options->{out} && @ARGV;
+
+# --- if we have params left over, the user got confused ---
+$options->usage("too many parameters") if @ARGV;
+
+# --- compute the target filename is we want one ---
+if (exists $options->{out} && $options->{out} ne '-') {
+
+	# --- devine the filename from the URI path ---
+	my $uri = new iTools::URI(URI => $options->{uri});
+	my $filename = ($uri->path() =~ m|([^/]+)$|)[0];
+
+	# --- save to cwd ---
+	if ($options->{out} eq '') {
+		$options->usage("unable to determine output filename")
+			if !defined $filename || $filename eq '';
+		$options->{out} = $filename;
+	}
+
+	# --- save to a dir ---
+	elsif (-d $options->{out} || $options->{out} =~ m|/$|) {
+		$options->usage("unable to determine output path/filename")
+			if !defined $filename || $filename eq '';
+		$options->{out} =~ s|/+$||;
+		$options->{out} .= "/$filename";
+	}
+
+	# --- otherwise it's just a regular path/filename ---
+	# do nothing;
+}
 
 # === Main Body of Code =====================================================
 
 # --- --noclobber ---
-if ($options->{file} && -e $options->{file} && $options->{noclobber}) {
-	vprint 0, "$options->{file} already exists\n";
+if ($options->{out} && -e $options->{out} && !$options->{clobber}) {
+	vprint 0, "$options->{out} already exists\n";
 	exit 0;
 }
 
 # --- acquire content ---
+vprint 0, "acquiring : $options->{uri}\n";
 my $content = acquire $options->{uri};
 # --- show error messages ---
 if (my $message = acquireMessage) {
@@ -54,11 +86,11 @@ if (my $message = acquireMessage) {
 }
 
 # --- write to file or STDOUT ---
-if ($options->{file}) {
-	vprint 0, "Writing $options->{uri}\n     to $options->{file}\n";
-	writefile $options->{file}, $content;
-} else {
+if (!$options->{out} || $options->{out} eq '-') {
 	print $content;
+} else {
+	vprint 0, "saving to : $options->{out}\n";
+	writefile $options->{out}, $content;
 }
 
 exit 0;
@@ -108,6 +140,14 @@ Functionally equivelant to the following Bash code:
 =item TODO: B<Lots>
 
 Still under heavy development
+
+=item TODO: B<OO option>
+
+Rewrite iTools::Acquire to optionally be used as an object
+
+=item TODO: B<--sip>
+
+Symlink if possible.
 
 =back
 
