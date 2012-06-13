@@ -105,7 +105,7 @@ bin_install() {
 
 	# -- copy changed files from live to stage ---
 	vecho 1 "      saving changed files"
-	for _FILE in `manifest diff --changed current.mf live.mf`; do
+	for _FILE in `manifest diff --changed -F fl current.mf live.mf`; do
 		if [ -e $STAGE_DIR/$_FILE ]; then
 			vecho 2 "         file '$_FILE' changed"
 			mv $STAGE_DIR/$_FILE $STAGE_DIR/$_FILE.new
