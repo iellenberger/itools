@@ -37,6 +37,36 @@ sub rname { shift->_var(name => @_) }
 # --- alias for rname ---
 sub name  { shift->rname(@_) }
 
+sub env {
+	my $self = shift;
+
+	# --- default values ---
+	$self->{env}->{REPO_URI} ||= $self->{uri};
+
+	# --- no params, return entire hash ---
+	return $self->{env} unless @_;
+
+	# --- one param = get ---
+	if (@_ == 1) {
+		my $arg = shift;
+
+		# --- not an array, return a single value ---
+		return $self->{env}->{$arg}
+			unless ref $arg eq 'ARRAY';
+
+		# --- many values ---
+		return map { $self->{env}->{$_} } @$arg;
+	}
+
+	# --- many params, we have a set ---
+	my %params = @_;
+	my @values;
+	while (my ($key, $value) = each %params) {
+		push @values, $self->{env}->{$key} = $value;
+	}
+	return @values;
+}
+
 # --- root dir of repo source (read-only) ---
 sub root {
 	my $self = shift;

@@ -3,7 +3,7 @@
 # --- Portia pbuild, stable version ---
 CATEGORY=sys-apps
 PACKAGE=portia
-VERSION=0.0.2
+VERSION=0.0.3
 REVISION="stable"
 
 DESCRIPTION="Ports inspired packagement management system"
@@ -15,7 +15,6 @@ LONGDESC="
 	Primarilly written in Perl and Bash, it is highly customizable and easilly extensible.
 "
 HOMEPAGE="https://github.com/iellenberger/itools"
-
 SRC_URI="https://github.com/iellenberger/itools/tarball/$PACKAGE-$VERSION"
 
 src_fetch() {

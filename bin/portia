@@ -115,9 +115,15 @@ sub dumpConfig {
 			_searchResults(@versions);
 			exit 1;
 		}
+		# --- we need at least one version ---
+		unless (@versions) {
+			vprint -2, "Unable to match package '$query'\n\n";
+			exit 1;
+		}
 
-		my $version = shift @versions;
+		$version = shift @versions;
 		$config->selectVersion($version);
+		$config->selectRepo($version->{repo} || 'local');
 	}
 
 	print "Portia Configuration:\n";
@@ -210,6 +216,7 @@ sub pushBuild {
 		vprint -1, "See the portia(1) manual page for details\n\n";
 		exit 1;
 	}
+	$config->selectRepo($repo);
 
 	# --- make sure the repo has a valid URI ---
 	my $uri = new iTools::URI(URI => $repo->{uri});
@@ -289,6 +296,7 @@ sub build {
 
 	my $version = shift @versions;
 	$config->selectVersion($version);
+	$config->selectRepo($version->{repo} || 'local');
 
 	# --- run the build ---
 	system "
@@ -325,6 +333,7 @@ sub install {
 	# --- select the version ---
 	my $version = shift @versions;
 	$config->selectVersion($version);
+	$config->selectRepo($version->{repo} || 'local');
 
 	# --- run the install ---
 	system "

@@ -92,6 +92,9 @@ sub maps {
 			WD             WORK_DIR      PWORK_DIR/work
 			SD             STAGE_DIR     PWORK_DIR/stage
 
+			RU     REPO_URI              undef
+			PU     PACKAGE_URI           REPO_URI/CATEGORY/PACKAGE
+
 			P      PACKAGE               undef
 			V      VERSION               undef
 			R      REVISION              undef
@@ -400,10 +403,8 @@ sub selectRepo {
 	}
 
 	# --- load the vars ---
-	if (exists $repo->{env}) {
-		$self->hardSet(%{$repo->{env}});
-		$self->resolveAll;
-	}
+	$self->hardSet(%{$repo->env});
+	$self->resolveAll;
 
 	return $repo;
 }
