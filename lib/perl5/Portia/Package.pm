@@ -104,6 +104,10 @@ sub find {
 		my @pkgvers;
 
 		foreach my $version (values %$package) {
+
+			# --- limit search to a single repo is one is given ---
+			next if $args->{repo} && $version->rname ne $args->{repo};
+
 			# --- query depth 0: search name ---
 			my $fullname = $version->rname .":". $version->pname ."-". $version->vname;
 			if ($fullname =~ $query) {

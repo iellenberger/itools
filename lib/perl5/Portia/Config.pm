@@ -390,15 +390,20 @@ sub selectVersion {
 
 sub selectRepo {
 	my ($self, $repo) = (_self(shift), shift);
+	my $reponame;
 
 	# --- load the repo by name if we didn't get an object ---
-	$repo = findRepo Portia::Sources(Name => $repo)
-		unless ref $repo eq 'Portia::Repo';
+	if (ref $repo eq 'Portia::Repository') {
+		$reponame = $repo->name;
+	} else {
+		$reponame = $repo;
+		$repo = findRepo Portia::Sources(Name => $reponame);
+	}
 
 	# --- throw error of not a repo object ---
 	unless (ref $repo eq 'Portia::Repository') {
-		vprint -1, "Unable to select repository $repo";
-		vprint 0, "not a valid repository";
+		vprint -1, "Unable to select repository ". ("'$reponame'" || "undef") ."\n";
+		vprint 0,  "   not a valid repository\n";
 		exit 1;
 	}
 
