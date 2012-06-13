@@ -14,7 +14,10 @@ source $LIB_ROOT/misc-functions.sh
 # fetches the source tarballs if defined in SRCFILES
 # Initial working directory: DOWNLOAD_DIR
 src_fetch() {
-	# --- no distfiles? no bother ---
+	# --- Add the default filename if SRCFILES is unset ---
+	if [ -z ${SRCFILES+unset} ]; then SRCFILES=$PVR-src.tgz; fi
+
+	# --- break out if still no SRCFILES ---
 	if [ -z $SRCFILES ]; then return 0; fi
 
 	# --- fetch each distfile ---

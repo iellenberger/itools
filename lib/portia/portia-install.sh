@@ -11,27 +11,30 @@ source $LIB_ROOT/misc-functions.sh
 # === Functions for Install Phase ===========================================
 
 # --- fetch the binary tarballs ---
-# fetches the binary tarballs if defined in DISTFILES
+# fetches the binary tarballs if defined in BINFILES
 # Initial working directory: DOWNLOAD_DIR
 bin_fetch() {
-	# --- no distfiles? no bother ---
-	if [ -z $DISTFILES ]; then return 0; fi
+	# --- Add the default filename if BINFILES is unset ---
+	if [ -z ${BINFILES+unset} ]; then BINFILES=$PVR.tgz; fi
+
+	# --- break out if still no BINFILES ---
+	if [ -z $BINFILES ]; then return 0; fi
 
 	# --- fetch each distfile ---
-	local _DISTFILE
-	for _DISTFILE in $DISTFILES; do
+	local _BINFILE
+	for _BINFILE in $BINFILES; do
 
 		local _SOURCE
 
-		# --- figure out whether _DISTFILE is a URI ---
-		if [[ $_DISTFILE =~ // ]]; then
-			_SOURCE=$_DISTFILE
+		# --- figure out whether _BINFILE is a URI ---
+		if [[ $_BINFILE =~ // ]]; then
+			_SOURCE=$_BINFILE
 		else
-			_SOURCE=$DISTFILES_URI/$_DISTFILE
+			_SOURCE=$DISTFILES_URI/$_BINFILE
 		fi
 
 		# --- fetch the source file ---
-		vecho 1 "      fetching $_DISTFILE"
+		vecho 1 "      fetching $_BINFILE"
 		vecho 2 "         from $_SOURCE"
 		vecho 2 "         to $DOWNLOAD_DIR"
 		acquire --noclobber -v $_SOURCE $DOWNLOAD_DIR
