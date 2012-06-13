@@ -123,7 +123,7 @@ sub dumpConfig {
 
 		$version = shift @versions;
 		$config->selectVersion($version);
-		$config->selectRepo($version->{repo} || 'local');
+		$config->selectRepo($version->{repo} || $options->{repo} || 'local');
 	}
 
 	print "Portia Configuration:\n";
@@ -296,7 +296,7 @@ sub build {
 
 	my $version = shift @versions;
 	$config->selectVersion($version);
-	$config->selectRepo($version->{repo} || 'local');
+	$config->selectRepo($version->{repo} || $options->{repo} || 'local');
 
 	# --- run the build ---
 	system "
@@ -333,7 +333,7 @@ sub install {
 	# --- select the version ---
 	my $version = shift @versions;
 	$config->selectVersion($version);
-	$config->selectRepo($version->{repo} || 'local');
+	$config->selectRepo($version->{repo} || $options->{repo} || 'local');
 
 	# --- run the install ---
 	system "
@@ -490,6 +490,14 @@ I will likely have to refactor that.
 
 Should be easy.
 Most of that is already in the portia-install.sh code.
+
+=item TODO: B<Better pushes>
+
+We should be able to push a pbuild from the local repo as well as copying its distfiles.
+
+=item TODO: B<Move _showResults to ::Version>
+
+Allow the version object to generate its own human-readable output.
 
 =back
 
