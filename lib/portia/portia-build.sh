@@ -11,18 +11,38 @@ source $LIB_ROOT/misc-functions.sh
 # === Functions for Build Phase =============================================
 
 # --- fetch the source tarballs ---
-# fetches the source tarballs if defined in SRC_URI
+# fetches the source tarballs if defined in SRCFILES
 # Initial working directory: DOWNLOAD_DIR
 src_fetch() {
-	# --- don't do anything if there's no $SRC_URI ---
-	if [ -z $SRC_URI ]; then return; fi
+	# --- no distfiles? no bother ---
+	if [ -z $SRCFILES ]; then return 0; fi
 
-	# --- localize variables ---
-	local _SOURCE
+	# --- fetch each distfile ---
+	local _SRCFILE
+	for _SRCFILE in $SRCFILES; do
 
-	# --- fetch each source file ---
-	for _SOURCE in $SRC_URI; do
-		acquire --noclobber $_SOURCE
+		local _SOURCE
+
+		# --- figure out whether _SRCFILE is a URI ---
+		if [[ $_SRCFILE =~ // ]]; then
+			_SOURCE=$_SRCFILE
+		else
+			_SOURCE=$DISTFILES_URI/$_SRCFILE
+		fi
+
+		# --- fetch the source file ---
+		vecho 1 "      fetching $_SRCFILE"
+		vecho 2 "         from $_SOURCE"
+		vecho 2 "         to $DOWNLOAD_DIR"
+		acquire --noclobber -v $_SOURCE $DOWNLOAD_DIR
+
+		# --- die on error ---
+		if [ $? -gt 0 ]; then
+			vecho -1
+			vecho -1 "Unable to download $_SOURCE"
+			vecho 0 "aborting install"
+			exit 1
+		fi
 	done
 }
 

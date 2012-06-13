@@ -11,37 +11,39 @@ source $LIB_ROOT/misc-functions.sh
 # === Functions for Install Phase ===========================================
 
 # --- fetch the binary tarballs ---
-# fetches the binary tarballs if defined in BIN_URI
+# fetches the binary tarballs if defined in DISTFILES
 # Initial working directory: DOWNLOAD_DIR
 bin_fetch() {
-	# --- localize variables ---
-	local _BINARY
+	# --- no distfiles? no bother ---
+	if [ -z $DISTFILES ]; then return 0; fi
 
-	# --- only fetch if we havn't already done so ---
-	if [ ! -e $DISTFILES_DIR/$PVR.tgz ]; then
-		# --- die if we can't locate a binary tarball ---
-		if [ -z $BIN_URI ]; then
-			vecho -1
-			vecho -1 "Unable to locate binary tarball(s)";
-			vecho 0 "The package does not have a BIN_URI defined"
-			vecho 0 "   and has not been locally built"
-			exit 1
+	# --- fetch each distfile ---
+	local _DISTFILE
+	for _DISTFILE in $DISTFILES; do
+
+		local _SOURCE
+
+		# --- figure out whether _DISTFILE is a URI ---
+		if [[ $_DISTFILE =~ // ]]; then
+			_SOURCE=$_DISTFILE
+		else
+			_SOURCE=$DISTFILES_URI/$_DISTFILE
 		fi
 
-		# --- fetch each source file ---
-		for _BINARY in $BIN_URI; do
-			vecho 1 "      fetching $PVR.tgz"
-			vecho 2 "         from $_BINARY"
-			vecho 2 "         to $DOWNLOAD_DIR"
-			acquire --noclobber -q $_BINARY $DOWNLOAD_DIR/$PVR.tgz
-		done
+		# --- fetch the source file ---
+		vecho 1 "      fetching $_DISTFILE"
+		vecho 2 "         from $_SOURCE"
+		vecho 2 "         to $DOWNLOAD_DIR"
+		acquire --noclobber -v $_SOURCE $DOWNLOAD_DIR
 
-	# --- just link the tarball if we already have it locally ---
-	else
-		vecho 1 "      found cached $PVR.tgz"
-		vecho 2 "         symlinking to $DOWNLOAD_DIR"
-		ln -s $DISTFILES_DIR/$PVR.tgz $DOWNLOAD_DIR/$PVR.tgz
-	fi
+		# --- die on error ---
+		if [ $? -gt 0 ]; then
+			vecho -1
+			vecho -1 "Unable to download $_SOURCE"
+			vecho 0 "aborting install"
+			exit 1
+		fi
+	done
 }
 
 # --- unpack the binary tarballs ---
