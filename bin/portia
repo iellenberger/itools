@@ -478,6 +478,8 @@ Still under heavy development
 
 I'm repeating the process far too often.
 
+=item TODO: B<Make exact package name matches work>
+
 =item TODO: B<Dependancies>
 
 This is rather important, but short of re-invoking portia over and over,
