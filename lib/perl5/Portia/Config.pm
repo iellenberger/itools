@@ -93,7 +93,8 @@ sub maps {
 			SD             STAGE_DIR     PWORK_DIR/stage
 
 			RU     REPO_URI              undef
-			PU     PACKAGE_URI           REPO_URI/CATEGORY/PACKAGE
+			PU     PACKAGE_URI           REPO_URI/packages/CATEGORY/PACKAGE
+			PU     DISTFILES_URI         REPO_URI/distfiles/CATEGORY/PACKAGE
 
 			P      PACKAGE               undef
 			V      VERSION               undef
