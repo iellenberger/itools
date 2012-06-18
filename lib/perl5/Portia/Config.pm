@@ -4,7 +4,7 @@ use base qw( iTools::Core::Accessor HashRef::Maskable );
 use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
 use Config;
 use Cwd qw( abs_path );
-use FindBin qw( $Bin $RealBin $RealScript );
+use FindBin qw( $Bin $RealBin $Script );
 use iTools::File qw( readfile );
 use iTools::Verbosity qw( vprint );
 use Portia::Sources;
