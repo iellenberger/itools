@@ -3,7 +3,7 @@
 # --- Portia pbuild, stable version ---
 CATEGORY=sys-apps
 PACKAGE=portia
-VERSION=0.0.3
+VERSION=0.0.4
 REVISION="stable"
 
 DESCRIPTION="Ports inspired packagement management system"

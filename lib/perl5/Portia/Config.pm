@@ -4,7 +4,7 @@ use base qw( iTools::Core::Accessor HashRef::Maskable );
 use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
 use Config;
 use Cwd qw( abs_path );
-use FindBin qw( $Bin $RealBin );
+use FindBin qw( $Bin $RealBin $RealScript );
 use iTools::File qw( readfile );
 use iTools::Verbosity qw( vprint );
 use Portia::Sources;
@@ -74,6 +74,7 @@ sub maps {
 			undef  HW_ARCH               undef
 
 			BR     BIN_ROOT              undef
+			undef    PORTIA_BIN          BIN_ROOT/bin/portia
 			LR       LIB_ROOT            BIN_ROOT/lib/portia
 			IR     INSTALL_ROOT          /usr/local
 
@@ -244,6 +245,7 @@ sub _loadEnv {
 	# --- set the essential values ---
 	$self->hardSet(PORTIA_ROOT => $ENV{PORTIA_ROOT} || abs_path("$Bin/.."));
 	$self->hardSet(BIN_ROOT    => $ENV{BIN_ROOT}    || abs_path("$RealBin/.."));
+	$self->hardSet(PORTIA_BIN  => $ENV{PORTIA_BIN}  || abs_path("$RealBin/$RealScript"));
 
 	# --- generate a list of initial config dirs ---
 	my @etcpath = uniq(
