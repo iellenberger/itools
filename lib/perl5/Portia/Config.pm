@@ -245,7 +245,7 @@ sub _loadEnv {
 	# --- set the essential values ---
 	$self->hardSet(PORTIA_ROOT => $ENV{PORTIA_ROOT} || abs_path("$Bin/.."));
 	$self->hardSet(BIN_ROOT    => $ENV{BIN_ROOT}    || abs_path("$RealBin/.."));
-	$self->hardSet(PORTIA_BIN  => $ENV{PORTIA_BIN}  || abs_path("$RealBin/$RealScript"));
+	$self->hardSet(PORTIA_BIN  => $ENV{PORTIA_BIN}  || abs_path("$Bin/$Script"));
 
 	# --- generate a list of initial config dirs ---
 	my @etcpath = uniq(
