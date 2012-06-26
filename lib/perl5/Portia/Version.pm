@@ -68,7 +68,7 @@ sub best {
 	my $best = $self->_varDefault(99999, _best => @_);
 
 	# --- this is a get: return the 'best' value ---
-	return $best || 99999 unless @_;
+	return defined $best ? $best : 99999 unless @_;
 
 	# --- generate the 'best' tag ---
 	my $spri = 9 - shift;                               # search priority (usually depth)
