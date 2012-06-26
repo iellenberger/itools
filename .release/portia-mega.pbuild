@@ -3,14 +3,14 @@
 # --- Portia pbuild ---
 CATEGORY=sys-apps
 PACKAGE=portia-mega
-VERSION=0.0.4
+VERSION=0.0.5
 TAGS="stable"
 
 #DEPEND="itools manifest portia"
 DEPEND="
 	manifest-0.7.4
 	itools-1.0.3
-	portia-0.0.4
+	portia-0.0.5
 "
 
 DESCRIPTION="Portia mega-build"

@@ -1,11 +1,12 @@
 #!/usr/bin/perl -w
-our $VERSION="0.0.2";
+our $VERSION="0.0.5";
 
 # --- always library path first ---
 use FindBin qw( $Bin $RealBin );
 use lib ("$RealBin/../lib/perl5", "$Bin/../lib/perl5");
 
 use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
+use HashRef::NoCase qw( nchash );
 use iTools::Script::Options;
 use iTools::System qw( chdir mkdir unlink pushdir popdir system command );
 use iTools::Verbosity qw( vprint vprintf verbosity );
@@ -107,7 +108,7 @@ sub dumpConfig {
 	# --- get a version obj if we have a query ---
 	if ($query) {
 		# --- get the version ---
-		my @versions = _getVersions($query);
+		my @versions = _getVersions($query, Best => 'top');
 
 		# --- if we get more than one result, show packages and exit ---
 		if (@versions > 1) {
@@ -142,28 +143,22 @@ sub sync { $sources->sync }
 
 # --- command: search ---
 sub search {
-	$sources->loadPackages;
-	my @versions = find Portia::Package(
-		query => shift,
-		depth => $options->{deep},
-		best  => !$options->verbosity,
-		cr    => $options->{cr},
-		tags  => $options->{tags},
+	_searchResults(
+		_getVersions(shift, 
+			depth => $options->{deep},
+			best  => !$options->verbosity,
+		)
 	);
-	_searchResults(@versions);
 }
 
 # --- command: show ---
 sub show {
-	$sources->loadPackages;
-	my @versions = find Portia::Package(
-		query => shift,
-		depth => $options->{deep},
-		best  => !$options->verbosity,
-		cr    => $options->{cr},
-		tags  => $options->{tags},
+	_showResults(
+		_getVersions(shift, 
+			depth => $options->{deep},
+			best  => !$options->verbosity,
+		)
 	);
-	_showResults(@versions);
 }
 
 # --- command: flush ---
@@ -280,7 +275,7 @@ sub build {
 		unless $query;
 
 	# --- get the version ---
-	my @versions = _getVersions($query);
+	my @versions = _getVersions($query, Best => 'top');
 
 	# --- if we get more than one result, show packages and exit ---
 	if (@versions > 1) {
@@ -316,7 +311,7 @@ sub install {
 		unless $query;
 
 	# --- get the version ---
-	my @versions = _getVersions($query);
+	my @versions = _getVersions($query, Best => 'top');
 
 	# --- if we get more than one result, show packages and exit ---
 	if (@versions > 1) {
@@ -400,7 +395,7 @@ sub _showResults {
 
 # --- get a version object from a query or pbuild file ---
 sub _getVersions {
-	my $query = shift;
+	my ($query, $params) = (shift, nchash(@_));
 
 	# --- if the query is a filename, set --file ---
 	$options->{file} = $query
@@ -413,17 +408,23 @@ sub _getVersions {
 			File => $options->{file},
 		);
 	}
+
+	# --- set default query params ---
+	my $defaults = {
+		Query => $query,
+		Best  => 1,
+		Depth => 0,
+		CR    => $options->{cr},
+		Tags  => $options->{tags},
+		Repo  => $options->{repo},
+	};
+	while (my ($key, $value) = each %$defaults) {
+		$params->{$key} = $value unless defined $params->{$key};
+	}
 	
 	# --- show config for a particular package ---
 	$sources->loadPackages;
-	return find Portia::Package(
-		query => $query,
-		best  => 1,
-		depth => 0,
-		cr    => $options->{cr},
-		tags  => $options->{tags},
-		repo  => $options->{repo},
-	);
+	return find Portia::Package(%$params);
 }
 
 =head1 NAME

@@ -108,10 +108,32 @@ sub find {
 			# --- limit search to a single repo is one is given ---
 			next if $args->{repo} && $version->rname ne $args->{repo};
 
+			# --- get various name strings ---
+			my ($_repo, $_cat, $_pkg, $_ver) = ($version->rname, split('/', $version->pname), $version->vname);
+
+			# --- query depth 0: exact name ---
+			if (
+				grep { $_ =~ /^$query$/ } (
+					# --- exact-match strings ---
+					"$_repo:$_cat/$_pkg-$_ver",  # repo:category/package-version
+					"$_repo:$_cat/$_pkg",        # repo:category/package
+					"$_repo:$_pkg-$_ver",        # repo:package-version
+					"$_repo:$_pkg",              # repo:package
+					"$_cat/$_pkg-$_ver",         # category/package-version
+					"$_cat/$_pkg",               # category/package
+					"$_pkg-$_ver",               # package-version
+					"$_pkg",                     # package
+				)
+			) {
+				$version->best(0);  # set the 'best' string
+				push @pkgvers, $version;
+				next;
+			}
+
 			# --- query depth 0: search name ---
 			my $fullname = $version->rname .":". $version->pname ."-". $version->vname;
 			if ($fullname =~ $query) {
-				$version->best(0);  # set the 'best' string
+				$version->best(1);  # set the 'best' string
 				push @pkgvers, $version;
 				next;
 			}
@@ -120,16 +142,16 @@ sub find {
 			# --- query depth 1: search descrption ---
 			next unless defined $version->{DESCRIPTION};
 			if ($version->{DESCRIPTION} =~ $query) {
-				$version->best(1);  # set the 'best' string
+				$version->best(2);  # set the 'best' string
 				push @pkgvers, $version;
 				next;
 			}
 			next unless $depth > 1;
 
-			# --- query depth 3: search long descrption ---
+			# --- query depth 2: search long descrption ---
 			next unless defined $version->{LONGDESC};
 			if ($version->{LONGDESC} =~ $query) {
-				$version->best(2);  # set the 'best' string
+				$version->best(3);  # set the 'best' string
 				push @pkgvers, $version;
 				next;
 			}
@@ -142,7 +164,7 @@ sub find {
 		next unless @pkgvers;
 
 		# --- sort by best version ---
-		@pkgvers = sort { $b->best cmp $a->best } @pkgvers;
+		@pkgvers = sort { $b->besttag cmp $a->besttag } @pkgvers;
 
 		# --- return best version if so requested ---
 		if ($best) { push @versions, shift @pkgvers }
@@ -150,8 +172,20 @@ sub find {
 		else       { push @versions, @pkgvers }
 	}
 
+	# --- remove all undef versions ---
+	@versions = grep { defined } @versions;
+
+	# --- return only the 'top' versions for first best level ---
+	if ($best && lc $best eq 'top') {
+		my @topvers;
+		for (my $level = 0; $level <= 3; $level++) {
+			@topvers = grep { $_->best == $level } @versions;
+			return @topvers if @topvers;
+		}
+	}
+
 	# --- return the results ---
-	return grep { defined } @versions;
+	return @versions;
 }
 
 1;

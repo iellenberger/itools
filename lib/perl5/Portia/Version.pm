@@ -59,23 +59,24 @@ sub pkg     { load Portia::Package(shift->pname) }
 # --- source repo/package root dir ---
 sub root { $_[0]->repo->root .'/packages/'. $_[0]->pname }
 
-# --- generate and/or return the 'best' tag ---
+# --- generate and/or return the 'best' value or tag ---
+sub besttag { shift->_varDefault('zzzzz', _besttag => @_) }
 sub best {
 	my $self = shift;
 
-	# --- return the 'best' tag ---
-	return $self->{_best} || 'zzzzz'
-		unless @_;
+	# ---- get the best value ---
+	my $best = $self->_varDefault(99999, _best => @_);
 
-	# --- search priority (usually depth) ---
-	my $spri = 9 - shift;
-
-	# --- the repo priority ---
-	my $rpri = 999 - ($self->repo->{priority} || 999);
+	# --- this is a get: return the 'best' value ---
+	return $best || 99999 unless @_;
 
 	# --- generate the 'best' tag ---
-	return $self->{_best} = sprintf "%d %-30s %03d",
-		$spri, $self->{LONGVERSION}, $rpri;
+	my $spri = 9 - shift;                               # search priority (usually depth)
+	my $rpri = 999 - ($self->repo->{priority} || 999);  # the repo priority
+	$self->besttag(sprintf "%d %-30s %03d", $spri, $self->{LONGVERSION}, $rpri);
+
+	# --- return the best value ---
+	return $best;
 }
 
 sub hasTag {
@@ -136,7 +137,7 @@ sub loadAll {
 		}
 
 		# --- save a new .store file ---
-		store $versions, '.store';
+		store $versions, '.store' if -w '.';
 	}
 	# --- the .store file is current, so use it ---
 	else {
