@@ -1,0 +1,408 @@
+#!/usr/bin/perl -w
+$VERSION=0.1;
+
+use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
+use English;
+use Getopt::Long;
+use POSIX 'strftime';
+
+use strict;
+use warnings;
+
+# === Globals ===============================================================
+my $options = {};
+
+# --- constants ---
+my $WIRED = 'wired';
+my $WIFI  = 'wifi';
+
+my $progname    = ($0 =~ /([^\/]*)$/)[0] || $0;
+my $statedir    = "/var/lib/itools";
+my $statefile   = "$statedir/$progname.state";
+my $logdir      = "/var/log/itools";
+my $logfile     = "$logdir/$progname.log";
+
+my $plistfile   = "/Library/LaunchAgents/com.site42.toggleAirPort.plist";
+my $installfile = "/Library/Scripts/$progname";
+
+# --- status of network cards ---
+my $status = {
+	cards => {
+		en0 => { type => $WIRED },
+		en1 => { type => $WIFI },
+	},
+};
+
+# === Main Body of Code =====================================================
+# --- load up all the options ---
+$options = configure();
+
+# --- install or reset ---
+$options->{uninstall} && do { uninstall(); exit 0; };
+$options->{install} && install();
+$options->{'reset'} && clearState();
+
+getState();
+
+# --- determine if wired network is connected and has changed ---
+if ($status->{$WIRED}->{changed}) {
+
+	# --- wired network has changed states ---
+	lprint("wired network has changed state");
+	if ($status->{$WIRED}->{connected}) {
+		setAirPort(0, "Wired network detected");
+	} else {
+		setAirPort(1, "No wired network detected");
+	}
+
+} else {
+
+	# --- wired network did not change states ---
+	if ($status->{$WIFI}->{changed}) {
+
+		# --- airport has manually changed states ---
+		my $card = $status->{cards}->{$status->{$WIFI}->{adapter}};
+		lprint("user has manually changed the state of the AirPort card");
+
+		# --- see manpage for how this works ---
+		if ($status->{$WIFI}->{connected}) {
+			if ($status->{$WIRED}->{connected}) {
+				$card->{manual} = 1;
+			} else {
+				$card->{manual} = 0;
+			}
+			setAirPort(1, "AirPort manually enabled");
+		} else {
+			if ($status->{$WIRED}->{connected}) {
+				$card->{manual} = 0;
+			} else {
+				$card->{manual} = 1;
+			}
+			setAirPort(0, "AirPort manually disabled");
+		}
+	}
+}
+
+saveState();
+
+exit 0;
+
+# === Functions =============================================================
+# --- turn airport on or off ---
+sub setAirPort {
+	my ($state, $message) = (shift || 0, shift || '');
+
+	# --- get adapter config ---
+	my $adapter = $status->{$WIFI}->{adapter};
+	my $card = $status->{cards}->{$adapter};
+
+	# --- don't make a change if the card is set to be manual ---
+	if ($card->{manual}) {
+		growl($message ."\nAirPort auto-enable is off");
+		return;
+	}
+	
+	# --- change the state of the airport card ---
+	if ($state) {
+		if ($card->{state} != $state) {
+			$message .= "\nTurning AirPort on";
+			system "/usr/sbin/networksetup -setairportpower $adapter on";
+		} else {
+			# --- already in the correct state ---
+			$message .= "\nAirPort auto-enable is on";
+		}
+		$card->{state} = 1;
+	} else {
+		if ($card->{state} != $state) {
+			$message .= "\nTurning AirPort off";
+			system "/usr/sbin/networksetup -setairportpower $adapter off";
+		} else {
+			# --- already in the correct state ---
+			$message .= "\nAirPort auto-enable is on";
+		}
+		$card->{state} = 0;
+	}
+	growl($message);
+}
+
+# --- growl/print a message ---
+sub growl {
+	my $message = shift;
+
+	# --- growl if installed ---
+	system qq[ /usr/local/bin/growlnotify -m "$message" -a "AirPort Utility.app" ]
+		if -f "/usr/local/bin/growlnotify";
+
+	$message =~ s/^/   /mg;
+	lprint($message);
+}
+
+# --- print to logfile ---
+sub lprint {
+	my $message = shift;
+
+	# --- print message ---
+	$message .= "\n" unless $message =~ /\n$/msg;
+	print $message;
+
+	# --- write to logfile ---
+	my $stamp = strftime('%b %d %H:%M:%S',localtime);
+	$message =~ s/^/$stamp $progname /mg;
+
+	open LOGFILE, ">>$logfile";
+	print LOGFILE $message;
+	close LOGFILE;
+}
+
+# === Built-in Installer and Uninstaller ====================================
+
+# --- install the program correctly ---
+sub install {
+	# --- make sure we're running this as root ---
+	if ($UID != 0) {
+		system "sudo $0 --install";
+		return;
+	}
+
+	# --- use the system() command to the stuff bash is good at ---
+	system <<BASH;
+# --- create the state and log files w/ the correct perms ---
+mkdir -p $statedir $logdir
+touch $statefile $logfile
+chmod 666 $statefile $logfile
+
+# --- install the script ---
+cp $0 $installfile
+chmod 755 $installfile
+BASH
+
+	# --- write the plist ---
+	open PLIST, ">$plistfile";
+	print PLIST <<XML;
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>Label</key>
+		<string>com.site42.toggleAirPort</string>
+		<key>OnDemand</key>
+		<true/>
+		<key>ProgramArguments</key>
+		<array>
+			<string>$installfile</string>
+		</array>
+		<key>WatchPaths</key>
+		<array>
+			<string>/Library/Preferences/SystemConfiguration</string>
+		</array>
+	</dict>
+</plist>
+XML
+	close PLIST;
+
+	# --- get the thing running ---
+	system "launchctl load $plistfile";
+
+	lprint("$progname installed");
+}
+
+sub uninstall {
+	# --- make sure we're running this as root ---
+	if ($UID != 0) {
+		system "sudo $0 --uninstall";
+		return;
+	}
+
+	lprint("uninstalling $progname");
+	lprint("   removing launchd watcher");
+	system "launchctl unload $plistfile";
+
+	# --- use the system() command to the stuff bash is good at ---
+	foreach my $file ($installfile, $plistfile, $statefile) {
+		lprint("   removing $file");
+		unlink $file;
+	}
+
+	lprint("$progname uninstalled");
+}
+
+# === Manage Adapter States =================================================
+# --- save adapter states ---
+sub saveState {
+	my $config = '';
+
+	# --- create config content ---
+	foreach my $adapter (sort keys %{$status->{cards}}) {
+		my $card = $status->{cards}->{$adapter};
+		$config .= "$adapter.connected $card->{state}\n";
+		$config .= "$adapter.manual $card->{manual}\n"
+			if exists $card->{manual};
+	}
+
+	# --- write the config file ---
+	open STATEFILE, ">$statefile" or do {
+		growl("$progname is not correctly installed. Please run the following:\n\t$progname --install");
+		exit 1;
+	};
+	print STATEFILE $config;
+	close STATEFILE;
+}
+
+# --- get adapter states ---
+sub getState {
+	# --- read previous config data into hash ---
+	open STATEFILE, "<$statefile" and do {
+		foreach my $line (<STATEFILE>) {
+			chomp $line;
+			my ($adapter, $key, $value) = ($line =~ /^(.*?)\.(.*?)\s(.*?)$/);
+			$key = 'prev' if $key eq 'connected';
+			$status->{cards}->{$adapter}->{$key} = $value;
+		}
+		close STATEFILE;
+	};
+
+	# --- get state for each adapter ---
+	foreach my $adapter (sort keys %{$status->{cards}}) {
+		my $card = $status->{cards}->{$adapter};
+
+		# --- initialize values ---
+		$card->{type}   ||= 'unknown';
+		$card->{state}  ||= 0;
+		$card->{prev}   ||= 0;
+		$card->{manual} ||= 0 if $card->{type} eq $WIFI;
+
+		# --- determine ethernet state ---
+		if ($card->{type} eq $WIRED) {
+			my $ifconfig = qx[ ifconfig $adapter ];
+			$card->{state} = 1
+				if $ifconfig =~ /status: active/msg;
+		}
+		# --- determine airport state ---
+		if ($card->{type} eq $WIFI) {
+			my $airpower = qx[ /usr/sbin/networksetup -getairportpower $adapter ];
+			$card->{state} = 1 if $airpower =~ /On$/msg;
+			$status->{$WIFI}->{adapter} = $adapter;
+		}
+
+		# --- initialize card class state ---
+		$status->{$card->{type}}->{connected} ||= 0;
+		$status->{$card->{type}}->{changed} ||= 0;
+
+		# --- determine if card class is connected or changed ---
+		$status->{$card->{type}}->{connected} = 1
+			if $card->{state} == 1;
+		$status->{$card->{type}}->{changed} = 1
+			if $card->{state} != $card->{prev};
+	}
+}
+
+# --- clear out the state file ---
+sub clearState {
+	open STATEFILE, ">$statefile" or do {
+		growl("$progname is not correctly installed. Please run the following:\n\t$progname --install");
+		exit 1;
+	};
+	print STATEFILE '';
+	close STATEFILE;
+
+	lprint("state file $statefile cleared");
+}
+
+# === Configuration =========================================================
+sub configure {
+	#usage() unless @ARGV; # force help message if no arguments
+
+	# --- parse the command line options ---
+	$options = {};
+	Getopt::Long::Configure('bundling');
+	GetOptions($options,
+		# --- core parameters ---
+		'help|?+', 'man+',    # usage and man pages
+
+		# --- options ---
+		'reset+',             # clear state information
+		'install+',           # install the program
+		'uninstall+',         # uninstall the program
+	);
+
+	# --- show usage or man page ---
+	$options->{help} && do { usage() };
+	$options->{man} && do { exec "perldoc $0" };
+
+	return $options;
+}
+
+# === Usage and Error Message ===============================================
+sub usage {
+	my $error = shift;
+
+	print STDERR qq[\nerror: $error\n] if $error;
+	print STDERR qq[
+usage: $progname [options] ARGS ...
+
+   -?, --help     display this message
+      --man          display the manual page for $progname
+
+   --install      install the program
+   --uninstall    uninstall the program
+   --reset        clear the state file
+
+];
+	exit 1;
+}
+
+=head1 NAME
+
+toggleAirPort - enable/disable AirPort when system is wired
+
+=head1 SYNOPSIS
+
+ toggleAirPort {-?|--man}
+ toggleAirPort [--install|--reset]
+
+=head1 DESCRIPTION
+
+B<toggleAirPort> automatically turns on or off the AirPort adapter depending
+on whether a wired network is detected to help save power.
+It also detects whether a user has manually changed the state of the AirPort
+and maintains that state until the user manually changes it back.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<-?>, B<--help>; B<--man>
+
+Display a short usage message, or the full manual page (sic).
+
+=item B<--install>, B<--uninstall>
+
+Installs or uninstalls the program on your system.
+
+=item B<--reset>
+
+Resets the saved states of the network cards.
+Useful in case the system gets confused.
+
+=back
+
+=head1 KNOWN ISSUES AND BUGS
+
+None.
+
+=head1 AUTHOR
+
+Written by Ingmar Ellenberger.
+
+Original reference script written by Craig R. Arko,
+available at http://hints.macworld.com/article.php?story=20100927161027611
+
+=head1 COPYRIGHT
+
+Copyright (c) 2011, Ingmar Ellenberger and distributed under The Artistic License.
+For the text the license, see L<http://puma.sourceforge.net/license.psp>
+or read the F<LICENSE> in the root of the Puma distribution.
+
+=head1 SEE ALSO
+
+=cut
