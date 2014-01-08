@@ -2,11 +2,11 @@ package Portia::Package;
 use base qw( iTools::Core::Accessor HashRef::Maskable );
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
+
 use HashRef::NoCase qw( nchash );
 #use iTools::System qw( die );
 #use Portia::Sources;
 use Portia::Version;
-#use Switch;
 
 use strict;
 use warnings;

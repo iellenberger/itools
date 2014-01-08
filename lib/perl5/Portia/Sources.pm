@@ -6,7 +6,7 @@ use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debu
 use HashRef::NoCase qw( nchash );
 use iTools::File qw( readfile );
 use iTools::Verbosity qw( vprint );
-use iTools::YAML;
+use iTools::YAML::Lite;
 use Portia::Repository;
 use Portia::Tools qw( indent interpolate );
 
@@ -119,7 +119,7 @@ sub loadSource {
 	my $content = interpolate(readfile($file));
 
 	# --- parse the YAML, set defaults and create ::Repository objects ---
-	my $yaml = new iTools::YAML(YAML => $content);
+	my $yaml = new iTools::YAML::Lite(YAML => $content, Tab => 3)->parse;
 	while (my ($name, $hash) = each %$yaml) {
 
 		# --- defaults ---

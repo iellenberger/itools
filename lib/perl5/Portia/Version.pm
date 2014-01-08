@@ -1,6 +1,8 @@
 package Portia::Version;
 use base qw( iTools::Core::Accessor HashRef::Maskable );
 
+use feature qw( switch );
+
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
 use Cwd qw( abs_path );
 use HashRef::NoCase qw( nchash );
@@ -8,7 +10,6 @@ use iTools::System qw( nofatal mkdir pushdir popdir system );
 use Portia::Sources;
 use Portia::Tools qw( match source );
 use Storable qw( store retrieve );
-use Switch;
 
 use strict;
 use warnings;
@@ -20,14 +21,14 @@ sub new {
 
    # --- parse incoming parameters ---
 	while (my ($key, $value) = each %args) {
-		switch (lc $key) {
+		given (lc $key) {
 			#! TODO: make these required
-			case m/^repo/         { $self->rname($value) }   
-			case m/^(?:pack|pkg)/ { $self->pname($value) }   
-			case m/^(?:name|ver)/ { $self->vname($value) }   
-			case m/^file/         { $self->file($value) }   
-			case m/^tag/          { $self->tags(@$value) }   
-			else                  { $self->{$key} = $value }
+			when (/^repo/)         { $self->rname($value) }   
+			when (/^(?:pack|pkg)/) { $self->pname($value) }   
+			when (/^(?:name|ver)/) { $self->vname($value) }   
+			when (/^file/)         { $self->file($value) }   
+			when (/^tag/)          { $self->tags(@$value) }   
+			default                { $self->{$key} = $value }
 		}
 	}
 

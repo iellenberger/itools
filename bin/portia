@@ -5,6 +5,8 @@ our $VERSION="0.0.5";
 use FindBin qw( $Bin $RealBin );
 use lib ("$RealBin/../lib/perl5", "$Bin/../lib/perl5");
 
+use feature qw( switch );
+
 use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
 use HashRef::NoCase qw( nchash );
 use iTools::Script::Options;
@@ -14,7 +16,6 @@ use Portia::Config;
 use Portia::Package;
 use Portia::Sources;
 use Portia::Tools qw( indent );
-use Switch;
 
 use strict;
 use warnings;
@@ -85,16 +86,16 @@ my $repo = $config->selectRepo($options->{repo})
 # === Main Body of Code =====================================================
 
 # --- process commands ---
-switch ($command) {
-	case 'dump'    { dumpConfig(@ARGV) }
-	case 'sync'    { sync() }
-	case 'search'  { search(@ARGV) }
-	case 'show'    { show(@ARGV) }
-	case 'push'    { pushBuild(@ARGV) }
-	case 'flush'   { flushCaches() }
-	case 'build'   { build(@ARGV) }
-	case 'install' { install(@ARGV) }
-	else          { $options->usage("unknown command '$command'") }
+given ($command) {
+	when ('dump')    { dumpConfig(@ARGV) }
+	when ('sync')    { sync() }
+	when ('search')  { search(@ARGV) }
+	when ('show')    { show(@ARGV) }
+	when ('push')    { pushBuild(@ARGV) }
+	when ('flush')   { flushCaches() }
+	when ('build')   { build(@ARGV) }
+	when ('install') { install(@ARGV) }
+	default          { $options->usage("unknown command '$command'") }
 }
 
 exit 0;

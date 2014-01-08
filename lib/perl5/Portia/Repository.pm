@@ -3,6 +3,8 @@ use base qw( iTools::Core::Accessor HashRef::Maskable );
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
 
+use feature qw( switch );
+
 use iTools::File qw( readfile );
 use iTools::System qw( nofatal mkdir pushdir popdir system );
 use iTools::Term::ANSI qw( color );
@@ -11,7 +13,6 @@ use iTools::Verbosity qw( verbosity vprint vtmp );
 use Portia::Package;
 use Portia::Sources;
 use Portia::Tools qw( indent match );
-use Switch;
 
 use strict;
 use warnings;
@@ -23,9 +24,9 @@ sub new {
 
 	# --- parse incoming parameters ---
 	while (my ($key, $value) = each %args) {
-		switch (lc $key) {
-			case m/^(?:repo|name)/ { $self->rname($value) }
-			else                   { $self->{$key} = $value }
+		given (lc $key) {
+			when (m/^(?:repo|name)/) { $self->rname($value) }
+			default                  { $self->{$key} = $value }
 		}
 	}
 
@@ -112,31 +113,31 @@ sub sync {
 	my $self = shift;
 
 	# --- sync repo based on sync type ---
-	switch ($self->{sync}) {
+	given ($self->{sync}) {
 		# --- live repository ---
-		case 'live' {
+		when ('live') {
 			vprint 1, ">no sync required (live repository)\n";
 		}
 		# --- full sync ---
-		case 'full' {
+		when ('full') {
 			vprint 1, ">full sync\n";
 			vprint 2, ">using URI $self->{uri}\n";
 			$self->syncFull;
 		}
 		# --- sparse sync ---
-		case 'sparse' {
+		when ('sparse') {
 			vprint 1, ">sparse sync\n";
 			vprint 2, ">using URI $self->{uri}\n";
 			$self->options->{deep} ? $self->syncDeep : $self->syncList;
 		}
 		# --- deep sync ---
-		case 'deep' {
+		when ('deep') {
 			vprint 1, ">deep sync\n";
 			vprint 2, ">using URI $self->{uri}\n";
 			$self->syncDeep;
 		}
 
-		else {
+		default {
 			vprint 1, ">". color("y", "could not sync $self->{name}, unknown sync type '$self->{sync}'") ."\n";
 		}
 	}
@@ -156,15 +157,15 @@ sub syncFull {
 
 	# --- generate command based on scheme ---
 	my $cmd = "rsync -a". (verbosity >= 4 ? 'v ' : ' ') ." --delete --exclude '*/.tgz' ";  # default is rsync
-	switch ($uri->scheme) {
+	given ($uri->scheme) {
 		# --- rsync native, via ssh or local filesystem ---
-		case 'rsync' { $cmd .= $uri->uri ."/* ."; }
-		case 'ssh'   { $cmd .= $uri->host .":". $uri->path ."/* ."; } #! TODO: add username
-		case 'file'  { $cmd .= $uri->path ."/* ."; }
+		when ('rsync') { $cmd .= $uri->uri ."/* ."; }
+		when ('ssh')   { $cmd .= $uri->host .":". $uri->path ."/* ."; } #! TODO: add username
+		when ('file')  { $cmd .= $uri->path ."/* ."; }
 
 		# --- otherwise wget a tarball ---
 		#! TODO: use LWP for http[s]
-		else {
+		default {
 			$cmd = "
 				# --- remove everything first ---
 				rm -rf ../packages/* ../packages/.list ../packages/.tgz
@@ -250,15 +251,15 @@ sub _syncFile {
 
 	# --- generate command based on scheme ---
 	my $cmd = "rsync ". (verbosity >= 4 ? '-v ' : '');  # default is rsync
-	switch ($uri->scheme) {
+	given ($uri->scheme) {
 		# --- rsync native, via ssh or local filesystem ---
-		case 'rsync' { $cmd .= $uri->uri ."$file ."; }
-		case 'ssh'   { $cmd .= $uri->host .":". $uri->path ."$file ."; } #! TODO: add username
-		case 'file'  { $cmd .= $uri->path ."$file ."; }
+		when ('rsync') { $cmd .= $uri->uri ."$file ."; }
+		when ('ssh')   { $cmd .= $uri->host .":". $uri->path ."$file ."; } #! TODO: add username
+		when ('file')  { $cmd .= $uri->path ."$file ."; }
 
 		# --- otherwise wget a tarball ---
 		#! TODO: use LWP for http[s]
-		else {
+		default {
 			$cmd = "rm -f $file; wget ". (verbosity >= 4 ? ' ' : '--quiet ') . $uri->uri ."$file";
 		}
 	}
@@ -331,18 +332,18 @@ sub matches {
 		# --- ignore undef and blank values ---
 		next unless defined $value && $value ne '';
 
-		switch (lc $key) {
+		given (lc $key) {
 			# --- query repo's tags ---
-			case 'tags' {
+			when ('tags') {
 				foreach my $query (ref $value ? @$value : $value) {
 					return unless match($query, $self->{tags});
 				}
 			}
-			case 'name' {
+			when ('name') {
 				return unless $self->name eq $value;
 			}
 			# --- query all other keys for the repo ---
-			else {
+			default {
 				return unless exists $self->{$key} && defined $self->{$key};
 				return unless match($value, $self->{$key});
 			}

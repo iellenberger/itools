@@ -2,6 +2,9 @@ package Portia::Config;
 use base qw( iTools::Core::Accessor HashRef::Maskable );
 
 use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
+
+use feature qw( switch );
+
 use Config;
 use Cwd qw( abs_path );
 use FindBin qw( $Bin $RealBin $Script );
@@ -10,7 +13,6 @@ use iTools::Verbosity qw( vprint );
 use Portia::Sources;
 use Portia::Tools qw( source uniq );
 use Storable qw( dclone );
-use Switch;
 
 use strict;
 use warnings;
@@ -33,9 +35,9 @@ sub new {
 
 	# --- parse incoming parameters ---
 	while (my ($key, $value) = each %args) {
-		switch (lc $key) {
-			case m/^import/ { $self->importEnv($value) }
-			else            { $self->{$key} = $value }
+		given (lc $key) {
+			when (m/^import/) { $self->importEnv($value) }
+			default           { $self->{$key} = $value }
 		}
 	}
 
