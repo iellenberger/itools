@@ -258,7 +258,7 @@ The regular expression for parsing the base URI was taken from URI(3pm), availab
 
 =over 4
 
-=item new iTools::URI([URI => I<URI>)
+=item new iTools::URI([URI => I<URI>])
 
 Creates and returns a new object for the class.
 The object can optionally be seeded with a B<URI>.
