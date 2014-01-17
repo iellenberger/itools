@@ -9,12 +9,13 @@ BEGIN {
 		exec $0,@ARGV;
 }	}
 
+use feature qw( switch );
+
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1;
 use Cwd;
 use Digest::MD5 qw( md5_hex );
 use Getopt::Long;
 use IO::File;
-use Switch;
 use Symbol;
 
 use strict;
@@ -644,11 +645,11 @@ sub configure {
 	delete @{$options}{qw(quiet verbose)};
 
 	unless ($options->{generate} || $options->{diff} || $options->{list}) {
-		switch (shift @ARGV) {
-			case /^g/i { $options->{generate} = 1 }
-			case /^d/i { $options->{diff}     = 1 }
-			case /^l/i { $options->{list}     = 1 }
-			else       { usage("COMMAND required") }
+		given (shift @ARGV) {
+			when (/^g/i) { $options->{generate} = 1 }
+			when (/^d/i) { $options->{diff}     = 1 }
+			when (/^l/i) { $options->{list}     = 1 }
+			default      { usage("COMMAND required") }
 		}
 	}
 
@@ -696,7 +697,7 @@ Generate Options:
       -a, --append     append to --output file
 
 Diff Options:
-   -o, --old           show files only in OLD (1st file)
+	-o, --old           show files only in OLD (1st file)
    -c, --changed       show changed files
    -u, --unchanged     show unchanged files
    -n, --new           show files in NEW (2nd file)
