@@ -105,7 +105,7 @@ sub interpolate {
 	my $text = shift;                    # text to interpolate values into
 	my $hash = shift || \%ENV;           # interpolation hash, default to %ENV
 	while (my ($k, $v) = each %$hash) {  # loop through interpolation hash
-		$text =~ s/\${$k}/$v/msg;        # replace keys in text with hash values
+		$text =~ s/\${$k}/$v/msg;         # replace keys in text with hash values
 	}
 	return $text;                        # return rewritten text
 }
@@ -171,3 +171,85 @@ sub undent {
 }
 
 1;
+
+=head1 NAME
+
+Portia::Tools - Perl-based tools to support Portia
+
+=head1 SYNPOSIS
+
+use Portia::Tools qw( source uniq interpolate match indent undent );
+
+=head1 DESCRIPTION
+
+Portia::Tools provides a number of commonly reused functions used in Portia.
+
+=head1 EXPORTED FUNCTIONS
+
+=over 4
+
+=item B<source>(SCRIPT [, ...])
+
+This is the Perl equivalent of the Bash 'source' command.
+It executes the given Bash SCRIPT and imports modified environment variables into the Perl's %ENV.
+
+If you specify more than one SCRIPT, these will be executed and imported in sequence.
+
+=item B<uniq>(ARRAY)
+
+Returns an array of unique values.
+The returned array maintains the order of the original ARRAY,
+keeping the first unique value it encounters while removing the rest.
+
+=item B<interpolate>(TEXT [, \HASH])
+
+Interpolates a HASH of values into a block of TEXT and returns the modified text.
+
+Values that are to be replaced are represented in the text as '${KEY}' where KEY is a key in the HASH.
+If the given HASH does not have the KEY, that portion of text is left unchanged.
+
+For example:
+
+   interpolate('this is a ${test}', { test => 'clusterfoo' })
+
+will return the string, "this is a clusterfoo".
+
+If no HASH is given, %ENV is used.
+
+=item B<match>(REGEX, ARRAY|ARRAYREF))
+
+Searches the ARRAY for a match to REGEX.
+Returns '1' of a match is found and '0' if not.
+
+=item B<indent>(INDENT, TEXT)
+
+Indents a block of TEXT.
+If INDENT is a string, that string will be prepended to each line.
+If INDENT is numeric, that number of spaces will be prepended to each line.
+
+Returns the indented block of text.
+
+=item B<undent>(TEXT)
+
+Removes the indent from a block of TEXT by finding the smallest indent
+and removing that number of spaces from the beginning of each line.
+Tabs are translated to be 4 spaces.
+
+=back
+
+=head1 DEPENDENCIES
+
+=head2 Core Perl Modules
+
+Cwd(3pm),
+Data::Dumper(3pm),
+English(3pm),
+FindBin(3pm),
+Storable(3pm)
+
+=head2 iTools Libraries
+
+iTools::Term::ANSI(3pm),
+iTools::System(3pm)
+
+=cut
