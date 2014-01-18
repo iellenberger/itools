@@ -187,8 +187,8 @@ sub pushBuild {
 	$options->usage("'push' requires a pbuild file as a parameter")
 		unless $pbuild;
 	# --- make sure the pbuild file exists and is readable ---
-	unless (-e $pbuild) { vprint -2, "'$pbuild' does not exist\n"; exit 1; }
-	unless (-R $pbuild) { vprint -2, "'$pbuild' is not readable\n"; exit 1; }
+	unless (-e $pbuild) { vprint -2, "The pbuild file '$pbuild' does not exist\n"; exit 1; }
+	unless (-R $pbuild) { vprint -2, "The pbuild file '$pbuild' is not readable\n"; exit 1; }
 
 	# --- find the push repo ---
 	my $repo = findRepo Portia::Sources(
@@ -466,7 +466,7 @@ Primarilly written in Perl and Bash and designed to be customizable and extensib
 
 =head1 OPTIONS
 
-=COREOPTS
+=dOREOPTS
 
 =head1 TODO, KNOWN ISSUES AND BUGS
 
