@@ -111,13 +111,17 @@ Extending:
 =head1 DESCRIPTION
 
 B<HashRef::Maskable> is a class which 'hides' any key within a hash.
-It does this by convincing the hash iterators (B<each>(), B<keys>(), B<values>()) to only return values that do not start with an underscore '_'.
-By doing so, you can hide keys within a hash by prefixing them with an underscore.
+It does this by convincing the hash iterators (B<each>(), B<keys>(),
+B<values>()) to only return values that do not start with an underscore '_'.
+By doing so, you can hide keys within a hash by prefixing them with an
+underscore.
 
 =head2 Basic Usage
 
-Using B<HashRef::Maskable> is quite simple - create the hash and add values to it.
-If you don't want a key to show up while iterating through the hash, prepend in underscore to it.
+Using B<HashRef::Maskable> is quite simple - create the hash and add values
+to it.
+If you don't want a key to show up while iterating through the hash, prepend
+in underscore to it.
 
    my ($hash, @keys, $foo);       # strict!
 
@@ -131,8 +135,9 @@ If you don't want a key to show up while iterating through the hash, prepend in 
    $foo = $hash->{user};          # 'sasquatch';
    $foo = $hash->{_pass};         # 'Br0wnY3t1';
 
-When using iterators (B<keys>, B<values>, B<each>), only the exposed values appear unless you use B<untied>(),
-but if you use the right key, all values are still available.
+When using iterators (B<keys>, B<values>, B<each>), only the exposed values
+appear unless you use B<untied>(), but if you use the right key, all values
+are still available.
 
 Note that you can also seed the hash through the constructor:
 
@@ -144,7 +149,8 @@ Note that you can also seed the hash through the constructor:
 =head2 Extending the Package
 
 Here's an example of how to extend B<HashRef::Maskable>.
-The following class will convert values to upper or lower case depending on parameters passed to to constructor.
+The following class will convert values to upper or lower case depending on
+parameters passed to to constructor.
 
    package ChangeCase;
    use base 'HashRef::Maskable';
@@ -179,8 +185,10 @@ The following class will convert values to upper or lower case depending on para
 
 =item The Constructor:
 
-In the constructor, we don't need to B<bless> the object into C<$class> because the parent's class method B<mhash>() will do it for us.
-If you REALLY want to go through the process of blessing it yourself, you can always write:
+In the constructor, we don't need to B<bless> the object into C<$class>
+because the parent's class method B<mhash>() will do it for us.
+If you REALLY want to go through the process of blessing it yourself, you can
+always write:
 
    my $self = bless $class->mhash(%hash), $class;
 
@@ -193,15 +201,19 @@ but this (minimally) increases overhead and provides no benefit.
 
 =item Overriding B<_fetch>():
 
-B<_fetch>() defines C<$self> as B<shift>->B<untied>() to ensure we have the non-hashtied version of the object.
-This is done because we want direct access to all data without the restrictions placed on it by the hash tie.
-See the description for the B<untied>() method below for an explanation of when and why you should use it.
+B<_fetch>() defines C<$self> as B<shift>->B<untied>() to ensure we have the
+non-hashtied version of the object.
+This is done because we want direct access to all data without the
+restrictions placed on it by the hash tie.
+See the description for the B<untied>() method below for an explanation of
+when and why you should use it.
 
 The rest of the code is self-evident.
 
 =item Overriding Other Methods:
 
-If you can think of reasons to override the remaining hooks, the interface is there for you to do it.
+If you can think of reasons to override the remaining hooks, the interface is
+there for you to do it.
 Here are some examples of entirely useless extensions:
 
    # --- save all values as Piglatin ---
@@ -248,10 +260,13 @@ See the documentation below for details.
 =item B<mhash>([I<HASH>])
 
 This is the actual constructor for B<HashRef::Maskable>.
-It recognizes the when it is called as a method as opposed to a function based on the number of parameters passed:
-if there is an odd number parameters, the first argument is shifted off the stack and used as the class name.
+It recognizes the when it is called as a method as opposed to a function
+based on the number of parameters passed: if there is an odd number
+parameters, the first argument is shifted off the stack and used as the class
+name.
 
-You can pass a number of key/value pairs (i.e. I<HASH>) as parameters and they will be used as seed values for the hash.
+You can pass a number of key/value pairs (i.e. I<HASH>) as parameters and
+they will be used as seed values for the hash.
 
 Returns a blessed object.
 
@@ -263,10 +278,13 @@ Returns a blessed object.
 
 =item B<untied>()
 
-B<untied>() allows you direct access to the hash's members without being filtered through the hash-tied methods
-(B<FIRSTKEY>(), B<NEXTKEY>(), B<STORE>(), B<FETCH>(), ...) and object hooks (B<_fetch>(), B<_store>(), ...).
+B<untied>() allows you direct access to the hash's members without being
+filtered through the hash-tied methods (B<FIRSTKEY>(), B<NEXTKEY>(),
+B<STORE>(), B<FETCH>(), ...) and object hooks (B<_fetch>(), B<_store>(),
+...).
 
-B<untied>() returns an un-hash-tied version of the object, even if the object is already untied.
+B<untied>() returns an un-hash-tied version of the object, even if the object
+is already untied.
 
 This type of direct access has several particularly useful applications:
 
@@ -274,7 +292,8 @@ This type of direct access has several particularly useful applications:
 
 =item Viewing Private Keys:
 
-By avoiding the B<FIRSTKEY>() and B<NEXTKEY>() methods, you can view all keys through B<untied>():
+By avoiding the B<FIRSTKEY>() and B<NEXTKEY>() methods, you can view all keys
+through B<untied>():
 
    keys %$obj            # exposed keys only
    keys %{$obj->untied}  # all keys, hidden and exposed
@@ -284,8 +303,8 @@ This also works for C<each()> and C<values()>.
 
 =item Preventing Infinite Recursion:
 
-When modifying the behavior of B<HashRef::Maskable> in a subclass, you run the risk of infinite recursion
-if you're not careful.
+When modifying the behavior of B<HashRef::Maskable> in a subclass, you run
+the risk of infinite recursion if you're not careful.
 If you create the following class:
 
    package Upper;
@@ -303,8 +322,10 @@ And the use it like this:
    $foo = $hash->upper('name');  # recursion error
 
 You would have a big problem.
-In the first C<print> statement, the C<upper()> method would have recieved an B<untied>() object and everything would work fine.
-For the second C<print> statement, it would have recieved the tied object, thereby creating an infinite recursion loop.
+In the first C<print> statement, the C<upper()> method would have recieved an
+B<untied>() object and everything would work fine.
+For the second C<print> statement, it would have recieved the tied object,
+thereby creating an infinite recursion loop.
 
 The solution is to guarantee that C<upper()> always has an B<untied>() object like this:
 
@@ -312,7 +333,8 @@ The solution is to guarantee that C<upper()> always has an B<untied>() object li
 
 =item Viewing Unmodified Values:
 
-If you are using this in a subclass that modifies hash values through the B<_fetch>() hook (ex. variable interpolation, case conversion, etc.),
+If you are using this in a subclass that modifies hash values through the
+B<_fetch>() hook (ex. variable interpolation, case conversion, etc.),
 B<untied> will allow you to see the original value:
 
    $value = $obj->{'key'};          # called via _fetch()
@@ -349,9 +371,11 @@ They are implemented (almost) literally as follows:
    sub _exists { exists $_[0]->{$_[1]} }
    sub _delete { delete $_[0]->{$_[1]} }
 
-When called from the hash-tied methods, the first parameter (C<$self>) will ALWAYS be the B<untied>() hash object.
+When called from the hash-tied methods, the first parameter (C<$self>) will
+ALWAYS be the B<untied>() hash object.
 If you call these methods directly, there is no guarantee that this is true.
-If you are uncertain how the method was called and whether $self is tied or untied, you can guarantee that you have the B<untied>() hash with this code:
+If you are uncertain how the method was called and whether $self is tied or
+untied, you can guarantee that you have the B<untied>() hash with this code:
 
    sub fetch {
       my $self = shift->untied;
@@ -360,7 +384,9 @@ If you are uncertain how the method was called and whether $self is tied or unti
 
 IMPORTANT NOTE FOR ADVANCED USERS:
 
-Do not overload the hash-tied methods B<EXISTS>() and B<FETCH>() without properly calling the parent methods (look at the code to understand what 'properly' means).
+Do not overload the hash-tied methods B<EXISTS>() and B<FETCH>() without
+properly calling the parent methods (look at the code to understand what
+'properly' means).
 Doing so will break the B<untied>() method.
 
 =back
@@ -369,9 +395,14 @@ Doing so will break the B<untied>() method.
 
 =head1 DEVELOPMENT NOTES
 
-In selecting a name for this class, I was concerned that the name/term '[Pp]rivate' would create a mental clash with the OO concept of a 'private member'.
-To resolve this, I named early prototypes of this package B<Hash::Hidden> but found that the name was equally ambigious (for other reasons) and much less memorable.
-In the end, I stuck with B<HashRef::Maskable>, but if you have a suggestion for a better name, let me know (see L</AUTHOR>).
+In selecting a name for this class, I was concerned that the name/term
+'[Pp]rivate' would create a mental clash with the OO concept of a 'private
+member'.
+To resolve this, I named early prototypes of this package B<Hash::Hidden> but
+found that the name was equally ambigious (for other reasons) and much less
+memorable.
+In the end, I stuck with B<HashRef::Maskable>, but if you have a suggestion
+for a better name, let me know (see L</AUTHOR>).
 
 =head1 TODO
 
@@ -379,12 +410,14 @@ In the end, I stuck with B<HashRef::Maskable>, but if you have a suggestion for 
 
 =item B<Add Remapping Function>
 
-A remapping function may not seem to be appropriate for this class, but it can be useful in hiding values that do not start with an underscore.
+A remapping function may not seem to be appropriate for this class, but it
+can be useful in hiding values that do not start with an underscore.
 For example:
 
    remap('password' => '_password');
 
-would allow a user to store a password without having it show up when dumpong the hash.
+would allow a user to store a password without having it show up when dumpong
+the hash.
 
 A question on implementation: Do we remap existing values?
 I would presume, "yes," but have not examined all possibilities.
