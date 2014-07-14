@@ -358,21 +358,21 @@ For details on B<universal> accessors, see the iTools::Core::Accessor(3pm) man p
 
 =over 4
 
-=item $obg->B<options>([I<VALUE>])
+=item $obj->B<options>([I<VALUE>])
 
-=item $obg->B<verbosity>([I<VALUE>])
+=item $obj->B<verbosity>([I<VALUE>])
 
-=item $obg->B<user>([I<VALUE>])
+=item $obj->B<user>([I<VALUE>])
 
-=item $obg->B<argv>([I<VALUE>])
+=item $obj->B<argv>([I<VALUE>])
 
-=item $obg->B<minargs>([I<VALUE>])
+=item $obj->B<minargs>([I<VALUE>])
 
-=item $obg->B<required>([I<VALUE>])
+=item $obj->B<required>([I<VALUE>])
 
-=item $obg->B<manvars>([I<VALUE>])
+=item $obj->B<manvars>([I<VALUE>])
 
-=item $obg->B<usageformat>([I<VALUE>])
+=item $obj->B<usageformat>([I<VALUE>])
 
 All of the methods B<universal> accessors to the URI component of the same name.
 They may be used to fetch individual values for a parsed URI or to set/change values for an new or existing URI.
@@ -380,9 +380,9 @@ They may be used to fetch individual values for a parsed URI or to set/change va
 All of these accesors perform no processing beyond storing values.
 See the methods below for information on content parsing.
 
-=item $obg->B<usagetext>([I<VALUE>])
+=item $obj->B<usagetext>([I<VALUE>])
 
-=item $obg->B<coreFlags>([I<VALUE>])
+=item $obj->B<coreFlags>([I<VALUE>])
 
 =back
 
