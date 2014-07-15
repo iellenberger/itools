@@ -1,5 +1,8 @@
 #!/usr/bin/perl -w
-use lib qw( ../.. );
+
+# --- local library path ---
+use FindBin qw( $Bin );
+use lib ("$Bin/../..");
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging
 use iTools::Core::Test;
@@ -31,6 +34,9 @@ bill-to:
         city    : Royal Oak
         state   : MI
         postal  : 48046
+array:
+	- one
+	- two
 product:
     - sku         : BL394D
       quantity    : 4
@@ -125,10 +131,11 @@ $obj = new iTools::YAML::Lite(
 	Tab  => 3,
 );
 my $hash = $obj->parse;
+# print Dumper($hash);
 
-#print Dumper($hash);
-#print Dumper($obj);
+$hash = yaml2hash(YAML => $YAML, TAB => 3);
 
+print Dumper($hash);
 
 
 # === Error Report ==========================================================

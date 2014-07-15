@@ -186,6 +186,7 @@ sub usage {
 	vprint -1, "\n". cpush('r') ."error: ". cpop ."$error\n\n" if $error;
 
 	my $usageformat = $self->usageformat;
+	#! TODO: check for undef in ->usagetext
 	vprint 0, <<USAGE ."\n". $self->usagetext ."\n\n$Script version $::VERSION\n\n";
 usage: $Script [-qv] $usageformat
 
@@ -213,6 +214,8 @@ sub man {
 	$vars->{PROGRAM} ||= $RealScript;
 	$vars->{COREOPTS} ||= $mancoreopts; $vars->{COREOPTS} =~ s/^\t//mg;
 
+	#! TODO: detect if this var has a space before it. Add a space if it doesn't.
+	#! TODO: figure out a better way to format this se we don't have to put a space in front of it.
 	$vars->{SYNOPSIS} ||= "$vars->{PROGRAM} {-?|--man}\n $vars->{PROGRAM} [-qv[vv]] ". $self->usageformat() ."\n";
 
 	# --- get the terminal size ---

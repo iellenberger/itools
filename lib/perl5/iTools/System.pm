@@ -8,17 +8,19 @@ $VERSION = "0.01";
 	system command
 	mkdir chdir mkcd symlink pushdir popdir
 	rename link unlink
+	vbase
 ),
 	#! it's getting close to the time to deprecate these:
-qw(
-	colored
-	indent verbosity vbase vprint vprintf vnprint vnprintf vtmp
-));
+#qw(
+#	colored
+#	indent verbosity vprint vprintf vnprint vnprintf vtmp
+#)
+);
 
 use Carp qw( cluck confess );
 use Cwd;
 use iTools::Term::ANSI qw( color );
-use iTools::Verbosity qw( vpush vpop );
+use iTools::Verbosity qw( vpush vpop vprint vprintf );
 use IPC::Open3;
 use Symbol;
 
@@ -29,14 +31,14 @@ use warnings;
 our $CONFIG = { };
 
 # === Deprecated Calls ======================================================
-# --- the following calls will be removed in the next version of iTools::System ---
 sub vbase     { _varDefault(2, 'vbase', @_) }
-sub verbosity { iTools::Verbosity::verbosity(@_) }
-sub vnprint   { iTools::Verbosity::vprint(@_) }
-sub vnprintf  { iTools::Verbosity::vprintf(@_) }
-sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift, @_) }
-sub vprintf   { iTools::Verbosity::vprintf(shift, '>'. shift, @_) }
-sub indent    { iTools::Verbosity::vindent(@_) }
+# --- the following calls will be removed in the next version of iTools::System ---
+#sub verbosity { iTools::Verbosity::verbosity(@_) }
+#sub vnprint   { iTools::Verbosity::vprint(@_) }
+#sub vnprintf  { iTools::Verbosity::vprintf(@_) }
+#sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift, @_) }
+#sub vprintf   { iTools::Verbosity::vprintf(shift, '>'. shift, @_) }
+#sub indent    { iTools::Verbosity::vindent(@_) }
 sub vtmp(&$) {
 	my ($code, $level) = @_;
 	vpush $level; my $retval = &$code; vpop;
@@ -189,6 +191,7 @@ sub mkdir {
 
 	# --- loop through params (paths) and create the dirs ---
 	PATH: foreach my $path (@_) {
+		next if -d $path;  # do nothing if it already exists
 
 		vprint vbase(), color('c', "mkdir: ") ."$path\n";
 

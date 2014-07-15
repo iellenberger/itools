@@ -2,7 +2,7 @@ package iTools::Serialize;
 use base Exporter;
 
 use Storable qw( freeze thaw );
-use UNIVERSAL qw( can );
+use UNIVERSAL;
 use iTools::File qw( readfile writefile );
 
 @EXPORT = qw( serialize unserialize );
@@ -18,13 +18,13 @@ sub new { return bless {}, ref($_[0]) || $_[0] }
 sub serialize {
 	my ($obj, $file) = @_;
 	my $ice = freeze(
-		can($obj, 'serial') ? $obj->serial : $obj
+		UNIVERSAL::can($obj, 'serial') ? $obj->serial : $obj
 	);
 	writefile($file, $ice) if defined $file;
 	return $ice;
 }
 sub unserialize {
-	shift if can($_[0], 'unserialize'); # turf the obj if necessary
+	shift if UNIVERSAL::can($_[0], 'unserialize'); # turf the obj if necessary
 	my $file = shift;                   # get the filename
 	return undef unless defined $file;  # file name required
 	return undef unless -e $file;       # file must exist

@@ -1,5 +1,8 @@
 #!/usr/bin/perl -w
-use lib qw( ../.. );
+
+# --- local library path ---
+use FindBin qw( $Bin );
+use lib ("$Bin/../..");
 
 use Data::Dumper; $Data::Dumper::Indent=0; $Data::Dumper::Sortkeys=1; # for debugging
 use iTools::Core::Test;

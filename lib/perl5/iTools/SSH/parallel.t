@@ -1,10 +1,13 @@
 #!/usr/bin/perl -w
-use lib qw( /net/keg/lib/perl5 );
+
+# --- local library path ---
+use FindBin qw( $Bin );
+use lib ("$Bin/../..");
 
 use FindBin qw( $RealBin $RealScript );
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging
 use iTools::Core::Test;
-use iTools::System qw( verbosity );
+use iTools::Verbosity qw( verbosity );
 
 use iTools::SSH::Parallel;
 

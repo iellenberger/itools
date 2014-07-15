@@ -21,11 +21,11 @@ our $INDENT = 3;
 
 # === Exports ===============================================================
 sub yaml2hash { liteyaml2hash(@_) }
-sub liteyaml2hash {
-}
+sub liteyaml2hash { iTools::YAML::Lite->new(@_)->parse }
 
 sub hash2yaml { litehash2yaml(@_) }
 sub litehash2yaml {
+	# --- not yet implemented ---
 }
 
 # === Object Construction ===================================================
@@ -38,12 +38,11 @@ sub new {
 	foreach my $key (keys %args) {
 		my $value = $args{$key};
 
-		$key =~ /^(?:Text|YML|YAML)$/i and do { $self->text($value);    next };
-		#$key =~ /^(?:File|FileName)$/i and do { $self->load($value); next };
-		$key =~ /^(?:File|FileName)$/i and do { $self->file($value); next };
-		$key =~ /^(?:Hash|Data)$/i and do     { $self->hash($value);    next };
-		$key =~ /^(?:Indent)$/i and do        { $self->indent($value);  next };
-		$key =~ /^(?:Tab|Tabs)$/i and do      { $self->tab($value);     next };
+		$key =~ /^(?:Text|YML|YAML)$/i and do { $self->text($value);   next };
+		$key =~ /^(?:File|FileName)$/i and do { $self->file($value);   next };
+		$key =~ /^(?:Hash|Data)$/i     and do { $self->hash($value);   next };
+		$key =~ /^(?:Indent)$/i        and do { $self->indent($value); next };
+		$key =~ /^(?:Tab|Tabs)$/i      and do { $self->tab($value);    next };
 	}
 
 	return $self;
@@ -250,14 +249,9 @@ sub parselines {
 
 		# --- set indent depth ---
 		$plines->[$linenum]->{depth} = @istack - 1;
-
-#print "'". join("'", @istack) ."'\n";
-#printf "%3d %d %s|%s\n", $linenum, @{$plines->[$linenum]}{qw( depth indent content )};
-
 		$linenum++;
 	}
 
-#print Dumper($plines);
 	$self->_plines($plines);
 
 	#! TODO: I think this belongs in parse()
@@ -279,26 +273,15 @@ sub parse2hash {
 	my $hash;
 	my $depth = $plines->[$pindex]->{depth};
 
-
-
-
 	while (my $lhash = $self->_pshift) {
-
-#print " --> $lhash->{content}\n";
-
 		# --- detect if we're parsing an array ---
 		if ($lhash->{indent} =~ /^\s*-\s*$/) {
 			$array ||= [];
-#print "... array tag\n";
 			if ($hash) {
 				push @$array, $hash;
-#print "... pushing hash ". Dumper($hash);
-
-
 				$hash = undef;
 			}
 		}
-
 
 		# --- ignore certain lines ---
 		next if $lhash->{content} =~ /^\s*#/;  # ignore comments
@@ -328,7 +311,7 @@ sub parse2hash {
 			$hash->{$key} = $value;
 
 		} elsif ($array) {
-			push @$array, $lhash->content;
+			push @$array, $lhash->{content} if defined $lhash->{content};
 		} else {
 				# --- generate error unless we have an array marker ---
 				push @{$lhash->{message}}, {
@@ -338,10 +321,8 @@ sub parse2hash {
 		}
 	}
 
-#print Dumper($hash);
-
 	if ($array) {	
-		push @$array, $hash; 
+		push @$array, $hash if defined $hash;
 		return $array;
 	} else {
 		return $hash;
@@ -373,7 +354,7 @@ sub _parseblock {
 	}
 
 	# --- join array of lines into a single text block and return ---
-	my $connector = $type eq '|' ? '\n' : ' ';
+	my $connector = $type eq '|' ? "\n" : ' ';
 	return join $connector, @lines;
 }
 
@@ -432,8 +413,6 @@ sub pMessage {
 		}
 	}
 
-#print Dumper($errcount);
-
 	# --- print message and exit on fatal ---
 	if ($errcount->{error}) {
 		print $msgtxt;
@@ -450,6 +429,7 @@ sub pMessage {
 # --- load a file ---
 sub load {
 	my ($self, $file) = @_;
+	$file = $self->file unless defined $file;
 
 	# --- error checks ---
 	unless ($file) { print STDERR "iTools::YAML::Lite->load: no filename given\n"; exit 1 }
