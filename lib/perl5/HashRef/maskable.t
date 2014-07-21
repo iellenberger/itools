@@ -1,8 +1,10 @@
 #!/usr/bin/perl -w
-use lib qw( .. /opt/iTools/lib );
 
-use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging
+# --- local library path ---
+use FindBin qw( $Bin );
+use lib ("$Bin/..");
 
+use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
 use iTools::Core::Test;
 use HashRef::Maskable qw( mhash );
 

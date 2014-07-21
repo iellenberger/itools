@@ -1,9 +1,11 @@
 #!/usr/bin/perl -w
-use lib qw ( .. );
 
-use Data::Dumper; $Data::Dumper::Indent=1; # for debugging
+# --- local library path ---
+use FindBin qw( $Bin );
+use lib ("$Bin/..");
+
+use Data::Dumper; $Data::Dumper::Indent=$Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
 use iTools::Core::Test;
-
 use HashRef::NoCase qw( nchash );
 
 use strict;
