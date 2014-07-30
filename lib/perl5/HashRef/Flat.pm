@@ -1,15 +1,11 @@
 package HashRef::Flat;
 use base qw( Exporter );
-$VERSION = "0.0.1";
+$VERSION = "0.0.2";
 
-@EXPORT_OK = qw( flatten flathash );
+@EXPORT_OK = qw( mkflat flatten unflatten interpolate );
 
-use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
-use List::Util qw( max );
+#use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
 use Scalar::Util qw( blessed );
-use Storable qw( dclone );
-
-#use Time::HiRes qw( usleep );
 
 use strict;
 use warnings;
@@ -17,8 +13,8 @@ use warnings;
 # === Class Variables =======================================================
 # --- obscure key for internal config ---
 our $cfgkey = __PACKAGE__ . join("\b", split('', "#^&(){}-=_+[];:<>,./?!"));
-
-our $_isflattening = 0;
+# --- used to track whether we're in the process of merging ---
+our $_ismerging = 0;
 
 # === Constructor and Export Wrapper ========================================
 
@@ -37,23 +33,243 @@ sub new {
 	# --- parse incoming parameters ---
 	my %args = @_;
 	while (my ($key, $value) = each %args) {
-		$key =~ /^hashd/i  && $self->hashdelim($value);
-		$key =~ /^arrayd/i && $self->arraydelim($value);
+		$key =~ /^h/i && $self->hashdelim($value);
+		$key =~ /^a/i && $self->arraydelim($value);
 	}
 
 	# --- merge source hash and return self ---
-	return $self->flatten($inhash);
+	return $self->merge($inhash);
 }
+
+# --- alternate constructor ---
+sub mkflat { __PACKAGE__->new->merge(@_) }
 
 # === Accessors =======================================================================
 sub hashdelim    { shift->_varDefault('.', hashdelim  => @_) }
 sub arraydelim   { shift->_varDefault(':', arraydelim => @_) }
 
 # --- internal accessors ---
-sub _isflat       { shift->_var(_isflat     => @_) }
-sub _isflattening { shift; @_ ? $_isflattening = shift || 0 : $_isflattening || 0 }
+sub _isflat      { shift->_var(_isflat     => @_) }
+sub _ismerging   { shift; @_ ? $_ismerging = shift || 0 : $_ismerging || 0 }
 
-# --- universal accessor from iTools::Core::Accessor ---
+# === Hash Flattening and Configuration Interpolation =======================
+
+# --- merge new data into the object and flatten the object ---
+sub merge {
+	my $self = shift;
+
+	# --- test for conditions where we can skip processing ---
+	return $self if $self->_ismerging;          # we're currently flattening
+	return $self if $self->_isflat && @_ == 0;  # we're flat and there are no args
+
+	# --- mark that we're currently flattening ---
+	$self->_ismerging(1);
+
+	# --- merge incoming data into self ---
+	if (@_) {
+
+		# --- create a new hash for incoming data ---
+		my $inhash = {};
+
+		# --- iterate through arguments and merge into $inhash ---
+		while (my $arg = shift) {
+
+			# --- if arg is hashref, walk it into self ---
+			if (_isa($arg, 'HASH')) {
+				my @keys = keys %$arg;
+				@{$inhash}{@keys} = @{$arg}{@keys};
+				next;
+			}
+		
+			# --- if arg is scalar, presume it a touple ---
+			if (not ref $arg) {
+				$inhash->{$arg} = shift;
+				next;
+			}
+
+			# --- do a WTF if the arg is the wrong type ---
+			#! TODO: make this message meaningful
+			print "WTF? $arg\n";
+			exit 1;
+		}
+
+		# --- flatten the incoming hash ---
+		$inhash = flatten($inhash);
+
+		# --- merge incoming hash into self ---
+		my @keys = keys %$inhash;
+		@{$self}{@keys} = @{$inhash}{@keys};
+	}
+
+
+	# --- check values in self and flatten non-scalars ---
+	foreach my $key (sort keys %$self) {
+		next if $key eq $cfgkey;  # ignore internal configuration
+
+		my $value = $self->{$key};
+
+		# --- a bit of trickery needed for Perl's evaluation order ---
+
+		# We need to return empty hash/array refs for code that looks like this:
+		#
+		#    $obj->{key}{key} = value; or
+		#    $obj->{key}[0[   = value;
+		#
+		# See CAVEATS in the manpage for more info
+
+		if (_isa($value, 'HASH') && ! %$value) {
+			$self->{$key} = {};
+		} elsif (_isa($value, 'ARRAY') && ! @$value) {
+			$self->{$key} = [];
+		} elsif (_isa($value, 'HASH', 'ARRAY')) {
+			# --- flatten all non-scalars ---
+			my $subhash = flatten($self->{$key}, $key);
+			delete $self->{$key};
+			my @subkeys = keys %$subhash;
+			map { $self->{$_} = $subhash->{$_} } keys %$subhash;
+		}
+	}
+
+	# --- mark that we're flat and are done flattening ---
+	$self->_isflat(1);
+	$self->_ismerging(0);
+
+	return $self;
+}
+
+# === Functional (i.e. non-OO) Code =========================================
+
+# --- flatten a hash (or array) ---
+sub flatten {
+	my ($ds, $prefix) = @_;
+	my $flat = {};
+	return $flat unless defined $ds;
+
+	if (ref $ds eq 'HASH') {
+		foreach my $key (keys %$ds) {
+			my $subhash = flatten($ds->{$key}, defined $prefix ? "$prefix.$key" : $key);
+			map { $flat->{$_} = $subhash->{$_} } keys %$subhash;
+		}
+	} elsif (ref $ds eq 'ARRAY') {
+		for (my $key = 0; $key < @$ds; $key++) {
+			my $subhash = flatten($ds->[$key], defined $prefix ? "$prefix:$key" : $key);
+			map { $flat->{$_} = $subhash->{$_} } keys %$subhash;
+		}
+	} else {
+		$flat = { $prefix => $ds };
+	}
+
+	return $flat;
+}
+
+# --- unflatten a hash ---
+sub unflatten {
+	my $hash = shift;
+
+	# --- get the delimeters ---
+	my ($hd, $ad) = ('.', ':');
+	if (_isa($hash, __PACKAGE__)) {
+		$hd = $hash->hashdelim;
+		$ad = $hash->arraydelim;
+	}
+
+	# --- this is where we store the expanded datastructure ---
+	my $expanded = {};
+
+	# --- build the regex for splitting the keys ---
+	my $delimre = '((?:' . quotemeta($hd) . ')|(?:' . quotemeta($ad) . '))';
+	$delimre = '(?<!\\\\)'. $delimre; #Use negative look behind
+
+	# --- walk through all keys ---
+	foreach my $key (reverse sort keys %$hash) {
+		my $value = $hash->{$key};
+
+		# --- split key into parts ---
+		my @parts = split /$delimre/, $key;
+		my $lastkey = pop @parts;
+
+		# --- walk through part touples and build the links ---
+		my $ptr = $expanded;  # the current link
+		while (@parts >= 2) {
+			my ($subkey, $type) = (shift @parts, shift @parts);
+
+			# --- add a hash ---
+			if ($type eq $hd) {
+				if (_isa($ptr, 'HASH')) {
+					$ptr->{$subkey} = {} unless exists $ptr->{$subkey};
+					$ptr = $ptr->{$subkey};
+				} else {
+					$ptr->[$subkey] = {} unless defined $ptr->[$subkey];
+					$ptr = $ptr->[$subkey];
+				}
+			}
+
+			# --- add an array ---
+			elsif ($type eq $ad) {
+				if (_isa($ptr, 'HASH')) {
+					$ptr->{$subkey} = [] unless exists $ptr->{$subkey};
+					$ptr = $ptr->{$subkey};
+				} else {
+					$ptr->[$subkey] = [] unless defined $ptr->[$subkey];
+					$ptr = $ptr->[$subkey];
+				}
+			}
+			
+			# --- something went wrong ---
+			else {
+				die "Type '$type' was not recognized. This should not happen.";
+			}
+		}
+
+		# --- add $lastkey ---
+		if (_isa($ptr, 'HASH')) {
+			print "Warning: Conflict found while trying to unflatten key $key\n"
+				if exists $ptr->{$lastkey};
+			$ptr->{$lastkey} = $value;
+		} else {
+			print "Warning: Conflict found while trying to unflatten key $key\n"
+				if exists $ptr->[$lastkey];
+			$ptr->[$lastkey] = $value;
+		}
+	}
+
+	return $expanded;
+}
+
+# --- interpolate hash into a block of text ---
+sub interpolate {
+	my ($hash, $text) = @_;
+	while (my ($key, $value) = each %$hash) {
+		$text =~ s/\${$key}/$value/g;
+	}
+	return $text;
+}
+
+# === Utility Methods =======================================================
+# --- return the untied hash ---
+sub untied {
+	exists $_[0]->{"_untied $cfgkey"}
+		? $_[0]->{"_untied $cfgkey"}
+		: $_[0];
+}
+
+# --- internal implementation of UNIVERSAL::isa() ---
+sub _isa {
+	my ($obj, @types) = @_;
+
+	# --- walk through types or'ing each ---
+	my $found = 0;
+	foreach my $type (@types) {
+		$found++ if blessed $obj && $obj->isa($type);
+		$found++ if ref $obj eq $type;
+	}
+
+	return $found ? 1 : 0;
+}
+
+# === Bits stripped from iTools::Core::Accessor =============================
+
+# --- universal accessor ---
 sub _var {
 	my ($self, $key) = (shift, shift);
 
@@ -98,185 +314,12 @@ sub _varDefault {
 	return $default;
 }
 
-
-
-# === Hash Flattening and Configuration Interpolation =======================
-
-#sub flat { __PACKAGE__->new->flatten(@_) }
-
-# --- alias for flatten ---
-sub merge { shift->flatten(@_) }
-
-sub flatten {
-	my $self = 
-		$_[0] && UNIVERSAL::isa($_[0], __PACKAGE__) ? shift : __PACKAGE__->new;
-
-	# --- test for conditions where we can skip processing ---
-	return $self if $self->_isflattening;       # we're currently flattening
-	return $self if $self->_isflat && @_ == 0;  # we're flat and there are no args
-
-	# --- mark that we're currently flattening ---
-	$self->_isflattening(1);
-
-	# --- merge arguments into a single hash ---
-	if (@_) {
-		my $inhash = {};
-		while (my $arg = shift) {
-
-			# --- if arg is hashref, walk it into self ---
-			if (UNIVERSAL::isa($arg, 'HASH')) {
-				my @keys = keys %$arg;
-				@{$inhash}{@keys} = @{$arg}{@keys};
-				next;
-			}
-		
-			# --- if arg is scalar, presume it a touple ---
-			if (not ref $arg) {
-				$inhash->{$arg} = shift;
-				next;
-			}
-
-			# --- do a WTF if the arg is the wrong type ---
-			#! TODO: make this message meaningful
-			print "WTF? $arg\n";
-			exit 1;
-		}
-
-		$inhash = flathash($inhash);
-
-		my @keys = keys %$inhash;
-		@{$self}{@keys} = @{$inhash}{@keys};
-
-	}
-
-	my @keys = sort keys %$self;
-
-	foreach my $key (@keys) {
-		next if $key eq $cfgkey;
-		my $value = $self->{$key};
-
-		if (UNIVERSAL::isa($value, 'HASH') && ! %$value) {
-			$self->{$key} = {};
-		} elsif (UNIVERSAL::isa($value, 'ARRAY') && ! @$value) {
-			$self->{$key} = [];
-		} else {
-			my $subhash = flathash($self->{$key}, $key);
-			delete $self->{$key};
-			my @subkeys = keys %$subhash;
-			map { $self->{$_} = $subhash->{$_} } keys %$subhash;
-		}
-	}
-
-	# --- mark that we're flat and are done flattening ---
-	$self->_isflat(1);
-	$self->_isflattening(0);
-
-	return $self;
-}
-
-
-sub flathash {
-	my ($ds, $prefix) = @_;
-	my $flat = {};
-	return $flat unless defined $ds;
-
-	if (ref $ds eq 'HASH') {
-		foreach my $key (keys %$ds) {
-			my $subhash = flathash($ds->{$key}, defined $prefix ? "$prefix.$key" : $key);
-			map { $flat->{$_} = $subhash->{$_} } keys %$subhash;
-		}
-	} elsif (ref $ds eq 'ARRAY') {
-		for (my $key = 0; $key < @$ds; $key++) {
-			my $subhash = flathash($ds->[$key], defined $prefix ? "$prefix:$key" : $key);
-			map { $flat->{$_} = $subhash->{$_} } keys %$subhash;
-		}
-	} else {
-		$flat = { $prefix => $ds };
-	}
-
-	return $flat;
-}
-
-# === Utility Methods =======================================================
-# --- return the untied hash ---
-sub untied {
-	exists $_[0]->{"_untied $cfgkey"}
-		? $_[0]->{"_untied $cfgkey"}
-		: $_[0];
-}
-
-# --- interpolate self into a block of text ---
-sub interpolate {
-	my ($self, $text) = @_;
-	while (my ($key, $value) = each %$self) {
-		$text =~ s/\${$key}/$value/g;
-	}
-	return $text;
-}
-
-sub unflatten {
-	my $self = shift;
-
-	my $hd = $self->hashdelim;
-	my $ad = $self->arraydelim;
-
-	my $expanded = {};
-
-	my $delimre = '((?:' . quotemeta($hd) . ')|(?:' . quotemeta($ad) . '))';
-	$delimre = '(?<!\\\\)'. $delimre; #Use negative look behind
-
-	foreach my $key (reverse sort keys %$self) {
-		my $value = $self->{$key};
-
-		my @parts = split /$delimre/, $key;
-		#print Dumper([@parts, $value]);
-
-		my $lastkey = pop @parts;
-
-		my $ptr = $expanded;
-		while (@parts >= 2) {
-			my ($subkey, $type) = (shift @parts, shift @parts);
-
-			if ($type eq $hd) {
-				if (UNIVERSAL::isa($ptr, 'HASH')) {
-					$ptr->{$subkey} = {} unless exists $ptr->{$subkey};
-					$ptr = $ptr->{$subkey};
-				} else {
-					$ptr->[$subkey] = {} unless defined $ptr->[$subkey];
-					$ptr = $ptr->[$subkey];
-				}
-			} elsif ($type eq $ad) {
-				if (UNIVERSAL::isa($ptr, 'HASH')) {
-					$ptr->{$subkey} = [] unless exists $ptr->{$subkey};
-					$ptr = $ptr->{$subkey};
-				} else {
-					$ptr->[$subkey] = [] unless defined $ptr->[$subkey];
-					$ptr = $ptr->[$subkey];
-				}
-			} else {
-				die "Type '$type' was not recognized. This should not happen.";
-			}
-		}
-
-		if (UNIVERSAL::isa($ptr, 'HASH')) {
-		if (exists $ptr->{$lastkey}) { print "Whaaaa?????!!!!\n"; }
-			$ptr->{$lastkey} = $value;
-		} else {
-		if (exists $ptr->[$lastkey]) { print "Whaaaa?????!!!!\n"; }
-			$ptr->[$lastkey] = $value;
-		}
-	}
-
-	return $expanded;
-}
-
-
 # === Hash Tie Stuff ========================================================
 # --- stock hashtie methods ---
 sub TIEHASH  { bless $_[1] || {}, ref($_[0]) || $_[0] }
 sub CLEAR    { delete @{$_[0]}{keys %{$_[0]}} }
 sub DELETE {
-	my ($self, $key) = (shift->flatten, shift);
+	my ($self, $key) = (shift->merge, shift);
 	delete $self->{$key};
 }
 
@@ -287,7 +330,7 @@ sub EXISTS {
 
 	# --- force flatten if the key does not exist ---
 	$self->_isflat(0) unless exists $self->{$key};
-	$self->flatten;
+	$self->merge;
 
 	return exists $self->{$key};
 }
@@ -299,14 +342,14 @@ sub FETCH {
 
 	# --- force flatten if the key does not exist ---
 	$self->_isflat(0) unless exists $self->{$key};
-	$self->flatten;
+	$self->merge;
 
 	return $self->{$key};
 }
 
 # --- filter out hidden values for keys() or each() ---
 sub FIRSTKEY {
-	my $self = shift->flatten;
+	my $self = shift->merge;
 
 	# --- reset to first key ---
 	scalar keys %{$self};
@@ -334,25 +377,26 @@ sub STORE {
 	# --- mark the object as not flat if we're storing a hash or array ref ---
 	$self->_isflat(0)
 		if ref $value and $key ne $cfgkey and
-			(UNIVERSAL::isa($value, 'HASH') or UNIVERSAL::isa($value, 'ARRAY'));
+			(_isa($value, 'HASH') or _isa($value, 'ARRAY'));
 
 	# --- set the value and return ---
 	return $self->{$key} = $value;
 }
 
-
 =head1 NAME
 
-HashRef::Flat - converts hash to a flattened datastructure
+HashRef::Flat - converts datastructure to a flattened hash
 
 =head1 SYNOPSIS
 
 Functional Interface:
 
-  use HashRef::Flat qw( flatten flathash )
+  use HashRef::Flat qw( merge flatten unflatten interpolate )
 
-  my $flatobj  = flatten($myhash);   # returns object
-  my $flathash = flathash($myhash);  # returns hash
+  my $flatobj  = mkflat($nested);                # returns object
+  my $flat     = flatten($nested);               # returns hash
+  my $nested   = unflatten($flat);               # unflattens hash
+  my $rendered = interpolate($flat, $template);  # variable interpolation
 
 OO Interface:
 
@@ -361,19 +405,19 @@ OO Interface:
   # --- create object ---
   my $obj = new HashRef::Flat($myhash);
 
-  # --- add data ---
+  # --- add more data ---
   $obj->{a}{b} = 'foo';     # new key: 'a.b'
-  $obj->{c}[0] = 'bar';     # new key: 'c:0
+  $obj->{c}[0] = 'bar';     # new key: 'c:0'
   $obj->{d}[1]{e} = 'boo';  # new key: 'd:1.e'
 
   # --- merge another hash on top of the current one ---
   $obj->merge($myotherhash};
 
-  # --- convert back to datastructure ---
+  # --- convert back to nested datastructure ---
   my $hash = $obj->unflatten;
 
   # --- variable interpolation ---
-  my $newtext = $obj->interpolate($text);
+  my $rendered = $obj->interpolate($template);
 
 =head1 DESCRIPTION
 
@@ -392,9 +436,9 @@ Code:
   }
 
   # --- flatten to a hash ---
-  print '$hash = '. Dumper(flathash($nested));
+  print '$hash = '. Dumper(flatten($nested));
   # --- flatten to an object ----
-  print '$obj = '. Dumper(flatten($nested));
+  print '$obj = '.  Dumper(mkflat($nested));
 
 Output:
 
@@ -422,24 +466,31 @@ the object's behaviour.
 
 =over 2
 
-=item B<flathash>(I<HASH>)
+=item B<flatten>(I<HASH>)
 
 This returns an unblessed flattened version of I<HASH>.
 OO functions are not available for the returned hash.
 
-=item B<flatten>(I<HASH> [,...])
+=item B<mkflat>(I<HASH> [,...])
 
 This returns a blessed hash (i.e. object) containing the merged I<HASH>es
-given as paramters.
+given as parameters.
 
-Without paramteters, it acts as a simple constructor.
+Without parameters, it acts as a simple constructor.
 
 =item B<unflatten>(I<HASH>)
 
-=item B<interpolate>(I<HASH>)
+Returns the flattened I<HASH> to a nested datastructure.
 
-Not yet implemented.
-See L</TODO>.
+This is identical to the OO method of the same name.
+See unflatten() in L</Methods> for additional details.
+
+=item B<interpolate>(I<HASH>, I<TEXT>))
+
+Allows you to interpolate the contents of a hash into a given block of text.
+
+This is identical to the OO method of the same name.
+See interpolate() in L</Methods> for additional details.
 
 =back
 
@@ -449,7 +500,7 @@ Using B<HashRef::Flat> as an object gives additional functionality including
 the ability to add values to the flattened hash on the fly.
 
 This example shows how adding values to the object converts incoming
-datastructures into their respecitve flattened key/value pairs:
+datastructures into their respective flattened key/value pairs:
 
   my $obj = new HashRef::Flat();
 
@@ -482,7 +533,12 @@ Creates a new B<HashRef::Flat> object.
 You can pass an existing I<HASH> to seed the object.
 
 Valid I<OPTIONS> are 'HashDelim => I<DELIMETER>' and 'ArrayDelim => I<DELIMETER>'.
-See L</Accessors> for details on these parameters.
+
+Constructor parameters are case insensitive and can be shortened up to first
+non-unique character, though is recommended to use longer strings to avoid
+conflicts with parameters that may be implemented in future versions of this package.
+
+See L</Accessors> for details on what these parameters do.
 
 =back
 
@@ -514,12 +570,10 @@ Default delimeters are '.' for hashes and ':' for arrays.
 
 =over 2
 
-=item $obj->B<flatten>([I<HASH> [,...]])
-
 =item $obj->B<merge>([I<HASH> [,...]])
 
-These methods merge the given hashes into the object and then flatten the
-contents of the object ofter the fact.
+This methods merges the given hashes into the object and then flatten the
+contents of the object.
 
 Merging is useful for when you have, for example, multiple configuration
 files where you want each successive file's values to clobber the values of
@@ -538,12 +592,11 @@ Example pseudocode:
 
 or alternately for tha last few lines:
 
-  my $obj = flatten($cfg1, $cfg2, $cfg3);
+  my $obj = mkflat($cfg1, $cfg2, $cfg3);
 
 If called without parameters, only the flatten operation will be performed.
-If called in a functional form, a new object will be created.
 
-Returns the existing or created object.
+Returns C<$obj>;
 
 =item $obj->B<unflatten>
 
@@ -576,7 +629,7 @@ and a template that looks like this:
 
 you can write (pseudo)code that looks like this:
 
-  my $info = flatten readYAML('myaddress.yaml');
+  my $info = merge readYAML('myaddress.yaml');
   my $template = readfile 'lostperson.txt';
   print $info->interpolate($template);
 
@@ -630,10 +683,6 @@ Most of this stuff is things I simply havn't gotten around to doing.
 
 =over 2
 
-=item B<Provide a functional interface for unflatten()>
-
-=item B<Provide a functional interface for interpolate()>
-
 =item B<Detect recursive structures>
 
 =back
@@ -646,8 +695,6 @@ See L</CAVEATS> and L</TODO>.
 
 The perlmonks site has a helpful introduction to when and why you might want
 to flatten a hash: L<http://www.perlmonks.org/index.pl?node_id=234186>
-
-
 
 =head1 REPORTING BUGS
 

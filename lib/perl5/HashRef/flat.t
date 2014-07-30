@@ -6,7 +6,7 @@ use lib ("$Bin/..");
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
 use iTools::Core::Test;
-use HashRef::Flat qw( flatten );
+use HashRef::Flat qw( mkflat );
 
 use strict;
 use warnings;
@@ -38,7 +38,7 @@ tprint $obj->merge(@exhash), "adding values via merge()";
 hcmp($obj);
 
 print "\nAdding Data:\n";
-tprint $obj = flatten, "generating new object via flatten()";
+tprint $obj = mkflat, "generating new object via mkflat()";
 tprint $obj->{k1} = 'v1', "adding scalar";
 tprint $obj->{k2}->{1} = 'v2.1', "adding hash, indirect";
 tprint !($obj->{k3} = { 1 => 'v3.1' }), "adding hash, direct";
@@ -51,12 +51,10 @@ tprint $obj->{k5}->[0] = 'v5:0', "adding array, indirect";
 tprint !($obj->{k6} = [ 'v6:0', 'v6:1' ]), "adding array, indirect";
 hcmp($obj);
 
-print Dumper($obj);
-
 print "\nUnflattening:\n";
 tprint $dump1 = Dumper($obj), "storing hash";
 tprint $hash = $obj->unflatten, "unflattening hash";
-tprint $dump2 = Dumper(flatten $hash), "reflattening and storing hash";
+tprint $dump2 = Dumper(mkflat $hash), "reflattening and storing hash";
 tprint $dump1 eq $dump2, "comparing stored hashes";
 
 # === Error Report ==========================================================
