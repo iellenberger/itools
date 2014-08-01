@@ -110,10 +110,11 @@ sub merge {
 
 		# --- a bit of trickery needed for Perl's evaluation order ---
 
-		# We need to return empty hash/array refs for code that looks like this:
+		# We are required to return empty hash/array refs for code that looks
+		# like this:
 		#
 		#    $obj->{key}{key} = value; or
-		#    $obj->{key}[0[   = value;
+		#    $obj->{key}[0]   = value;
 		#
 		# See CAVEATS in the manpage for more info
 
@@ -223,11 +224,11 @@ sub unflatten {
 
 		# --- add $lastkey ---
 		if (_isa($ptr, 'HASH')) {
-			print "Warning: Conflict found while trying to unflatten key $key\n"
+			print "warning: conflict while trying to unflatten '$key'\n"
 				if exists $ptr->{$lastkey};
 			$ptr->{$lastkey} = $value;
 		} else {
-			print "Warning: Conflict found while trying to unflatten key $key\n"
+			print "warning: conflict while trying to unflatten '$key'\n"
 				if exists $ptr->[$lastkey];
 			$ptr->[$lastkey] = $value;
 		}
@@ -315,18 +316,15 @@ sub _varDefault {
 }
 
 # === Hash Tie Stuff ========================================================
-# --- stock hashtie methods ---
 sub TIEHASH  { bless $_[1] || {}, ref($_[0]) || $_[0] }
 sub CLEAR    { delete @{$_[0]}{keys %{$_[0]}} }
-sub DELETE {
-	my ($self, $key) = (shift->merge, shift);
-	delete $self->{$key};
-}
+sub DELETE   { delete $_[0]->merge->{$_[1]} }
 
-# --- process cfgkey keys specially ---
 sub EXISTS {
 	my ($self, $key) = (shift, shift);
-	return 1 if $key =~ /$cfgkey$/;  # filter internal configuration
+
+	# --- special keys ---
+	return 1 if $key =~ /$cfgkey$/;  # filter internal config
 
 	# --- force flatten if the key does not exist ---
 	$self->_isflat(0) unless exists $self->{$key};
@@ -337,6 +335,8 @@ sub EXISTS {
 
 sub FETCH {
 	my ($self, $key) = (shift, shift);
+
+	# --- special keys ---
 	return $self if $key eq "_untied $cfgkey";   # return untied hash
 	return $self->{$cfgkey} if $key eq $cfgkey;  # filter internal config
 
@@ -347,7 +347,6 @@ sub FETCH {
 	return $self->{$key};
 }
 
-# --- filter out hidden values for keys() or each() ---
 sub FIRSTKEY {
 	my $self = shift->merge;
 
@@ -475,20 +474,17 @@ OO functions are not available for the returned hash.
 
 This returns a blessed hash (i.e. object) containing the merged I<HASH>es
 given as parameters.
-
 Without parameters, it acts as a simple constructor.
 
 =item B<unflatten>(I<HASH>)
 
 Returns the flattened I<HASH> to a nested datastructure.
-
 This is identical to the OO method of the same name.
 See unflatten() in L</Methods> for additional details.
 
 =item B<interpolate>(I<HASH>, I<TEXT>))
 
 Allows you to interpolate the contents of a hash into a given block of text.
-
 This is identical to the OO method of the same name.
 See interpolate() in L</Methods> for additional details.
 
@@ -594,11 +590,30 @@ or alternately for tha last few lines:
 
   my $obj = mkflat($cfg1, $cfg2, $cfg3);
 
-If called without parameters, only the flatten operation will be performed.
+If called without parameters, only the self-flattening operation will be performed.
 
 Returns C<$obj>;
 
 =item $obj->B<unflatten>
+
+Returns a nested hash based on the values stored in the object.
+i.e. the opposite of flatten.
+
+Note that if your keys contain character sequences the same as the
+delimeters, the returned data structure will differ from the original.
+For example:
+
+  $x->{versionmap}{'2.1.5:2'} = '2.6';
+
+Will flatten to
+
+  $y->{'versionmap.2.1.5:2'} = '2.6';
+
+and wil unflatten to:
+
+  $y->{versionmap}{2}{1}{5}[2] = '2.6';
+
+See L</CAVEATS> for additional gotchas.
 
 =item $obj->B<interpolate>(I<TEXT>)
 
@@ -621,9 +636,9 @@ Lets say you have a config file like so (using YAML in this example):
 
 and a template that looks like this:
 
-  If you find this person walking around aimlessly, please return them to:
+  If you find ${name} walking around aimlessly,
+  please return them to:
 
-    ${name}
     ${home.address:0} ${home.address:1}
     ${home.city}, ${home.state} ${home.zip}
 
@@ -635,7 +650,7 @@ you can write (pseudo)code that looks like this:
 
 (You can figure out the output yourself)
 
-The format is simple: the flattened key inside of a dollar-curley bracket.
+The format is simple: a flattened key inside of a dollar-curley bracket.
 Any keys that are not in the object/hash remain unrendered.
 
 =item $obj->B<untied>
@@ -647,49 +662,105 @@ It exposes the hidden keys used for configutaion of the object.
 
 =back
 
-=head1 NOTES
-
-scalar refs and code
-
-return value undef when adding non-scalar
-
-setting delimieters after seeding vcalues
-
-conflicting keys in unflatten
-
-Storing empty hashes and arrays
-
-clobber on merge
-
-dots in keys
-
-caveats: intense processing - concern for large datasets
-
-threadsafe
-
-escaping templated variables
-
 =head1 CAVEATS
 
 =over 2
 
-=item
+=item B<Setting Delimeters After Seeding>
+
+=item B<Merging vs. Assigning>
+
+The process of merging hashes allows you to avoid nasty errors when forcing
+one datatype to replace another.
+The last value encountered always overrides existing values.
+For example:
+
+  $obj->merge({ k1 => { 1 => 'v1.1' }}, { k1 => 'v1' });
+  $obj->merge({ k2 => 'v2' }, { k2 => { 1 => 'v2.1' }});
+
+produces this flattened structure:
+
+  { 'k1' => 'v1', 'k2.1' => 'v2.1' }
+
+If you try to do the same via assignment:
+
+  $obj->{k1}->{1} = 'v1.1';
+  $obj->{k1} = 'v1';         # this works!
+  $obj->{k2} = 'v2';
+  $obj->{k2}->{1} = 'v2.1';  # ERROR!
+
+The first two lines work fine, but the last line forces Perl to throw the
+error, "Can't use string ("v2") as a HASH ref ..."
+Alternately, you could directly assign each flattened value like this:
+
+  $obj->{'k1.1'} = 'v1.1';
+  $obj->{'k1'}   = 'v1';
+  $obj->{'k2'}   = 'v2';
+  $obj->{'k2.1'} = 'v2.1';
+
+but it will not clobber higher order keys the way it would if you had merged
+two datastructures.
+Instead, you would get this:
+
+  { 'k1' => 'v1', 'k1.1' => 'v1.1',
+    'k2' => 'v2', 'k2.1' => 'v2.1' }
+
+If that's what you intended, then happiness will ensue - though be warned:
+this will not fully unflatten.
+(see next caveat)
+
+=item B<Unflattening an Invalid Nested Structure>
+
+B<HahsRef::Flat> will allow you to insert keys that will not unflatten to a
+valid nested structure.
+For example:
+
+  $obj->{'k1'}   = 'v1';
+  $obj->{'k1.1'} = 'v1.1';
+  my $hash = $obj->unflatten;
+  print Dumper($hash);
+
+gives the following warning and output:
+
+  warning: conflict while trying to unflatten 'k1'
+  { 'k1' => 'v1' }
+
+The unflattening process happens in the sort order of the keys.
+The first key processed always wins.
+
+=item B<Storing Empty Hashes and Arrays>
+
+=item B<Caution re. Large Datasets>
+
+=item B<We are Threadsafe!>
 
 =back
 
-=head1 TODO
+=head1 TODO, KNOWN ISSUES AND BUGS
 
 Most of this stuff is things I simply havn't gotten around to doing.
 
 =over 2
 
-=item B<Detect recursive structures>
+=item B<BUG/TODO: Detect recursive structures>
+
+Let's not get into an infinite loop here.
+
+=item B<TODO: Do cool stuff with scalar/code refs>
+
+See Hash::Flatten and the cool stuff it does.
+
+=item B<TODO: Allow escapes in templates>
+
+There is a use case where we may want to keep variables in templates
+uninterpolated.
+We should provide a mechanism for that.
+
+On the other hand, there's a buttload of other features we could provide as well.
+Perhaps we should take this functionality out of the package and create
+another bundle of awesomness just for templating.
 
 =back
-
-=head1 KNOWN ISSUES AND BUGS
-
-See L</CAVEATS> and L</TODO>.
 
 =head1 SEE ALSO
 
@@ -715,7 +786,7 @@ For the text the license, see L<https://github.com/iellenberger/itools/blob/mast
 or read the F<LICENSE> in the root of the iTools distribution.
 
 Inspired by, and some code fragments taken from B<Hash::Flatten>,
-Copyright (c) BBC 2005, distributed under the GNU GPL.
+copyright (c) BBC 2005, distributed under the GNU GPL.
 
 =head1 DEPENDENCIES
 
@@ -724,6 +795,7 @@ Exporter(3pm)
 =head1 SEE ALSO
 
 perldata(1),
+Hash::Flatten(3pm),
 
 =cut
 

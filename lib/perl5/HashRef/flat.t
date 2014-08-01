@@ -57,6 +57,9 @@ tprint $hash = $obj->unflatten, "unflattening hash";
 tprint $dump2 = Dumper(mkflat $hash), "reflattening and storing hash";
 tprint $dump1 eq $dump2, "comparing stored hashes";
 
+print "\nOther Tests:\n";
+tprint delete $obj->{'k4.1'}, "deleting key";
+
 # === Error Report ==========================================================
 print "\n". tvar('errors') ." error(s) and ". tvar('warnings') ." warning(s) in ". tvar('count') ." tests\n\n";
 exit tvar('errors');
