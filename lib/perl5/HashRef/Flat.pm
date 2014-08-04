@@ -1,6 +1,6 @@
 package HashRef::Flat;
 use base qw( Exporter );
-$VERSION = "0.0.2";
+$VERSION = "1.0.0";
 
 @EXPORT_OK = qw( mkflat flatten unflatten interpolate );
 
@@ -12,7 +12,7 @@ use warnings;
 
 # === Class Variables =======================================================
 # --- obscure key for internal config ---
-our $cfgkey = __PACKAGE__ . join("\b", split('', "#^&(){}-=_+[];:<>,./?!"));
+our $_cfgkey = __PACKAGE__ . join("\b", split('', "#^&(){}-=_+[];:<>,./?!"));
 # --- used to track whether we're in the process of merging ---
 our $_ismerging = 0;
 
@@ -33,8 +33,8 @@ sub new {
 	# --- parse incoming parameters ---
 	my %args = @_;
 	while (my ($key, $value) = each %args) {
-		$key =~ /^h/i && $self->hashdelim($value);
-		$key =~ /^a/i && $self->arraydelim($value);
+		$key =~ /^a/i || $key eq 'ad' && $self->arraydelim($value);
+		$key =~ /^h/i || $key eq 'hd' && $self->hashdelim($value);
 	}
 
 	# --- merge source hash and return self ---
@@ -45,12 +45,28 @@ sub new {
 sub mkflat { __PACKAGE__->new->merge(@_) }
 
 # === Accessors =======================================================================
-sub hashdelim    { shift->_varDefault('.', hashdelim  => @_) }
-sub arraydelim   { shift->_varDefault(':', arraydelim => @_) }
+sub ad {
+	my $self = shift;
+	$self->_selfflatten if @_;
+	$self->_varDefault(':', arraydelim => @_);
+}
+sub hd {
+	my $self = shift;
+	$self->_selfflatten if @_;
+	$self->_varDefault('.', hashdelim  => @_);
+}
+sub arraydelim { shift->ad(@_) }
+sub hashdelim  { shift->hd(@_) }
+sub adhd {
+	my ($self, $ad, $hd) = @_;
+	$ad = defined $ad ? $self->arraydelim($ad) : $self->arraydelim;
+	$hd = defined $hd ? $self->hashdelim($hd)  : $self->hashdelim;
+	return ($ad, $hd);
+}
 
 # --- internal accessors ---
-sub _isflat      { shift->_var(_isflat     => @_) }
-sub _ismerging   { shift; @_ ? $_ismerging = shift || 0 : $_ismerging || 0 }
+sub _isflat    { shift->_var(_isflat => @_) }
+sub _ismerging { shift; @_ ? $_ismerging = shift || 0 : $_ismerging || 0 }
 
 # === Hash Flattening and Configuration Interpolation =======================
 
@@ -58,14 +74,8 @@ sub _ismerging   { shift; @_ ? $_ismerging = shift || 0 : $_ismerging || 0 }
 sub merge {
 	my $self = shift;
 
-	# --- test for conditions where we can skip processing ---
-	return $self if $self->_ismerging;          # we're currently flattening
-	return $self if $self->_isflat && @_ == 0;  # we're flat and there are no args
-
-	# --- mark that we're currently flattening ---
-	$self->_ismerging(1);
-
 	# --- merge incoming data into self ---
+	my @adhd = $self->adhd;
 	if (@_) {
 
 		# --- create a new hash for incoming data ---
@@ -73,6 +83,7 @@ sub merge {
 
 		# --- iterate through arguments and merge into $inhash ---
 		while (my $arg = shift) {
+			# next unless defined $arg;
 
 			# --- if arg is hashref, walk it into self ---
 			if (_isa($arg, 'HASH')) {
@@ -94,17 +105,35 @@ sub merge {
 		}
 
 		# --- flatten the incoming hash ---
-		$inhash = flatten($inhash);
+		$inhash = flatten($inhash, undef, @adhd);
 
 		# --- merge incoming hash into self ---
 		my @keys = keys %$inhash;
 		@{$self}{@keys} = @{$inhash}{@keys};
 	}
 
+	$self->_selfflatten;
+
+	return $self;
+}
+
+sub _selfflatten {
+	my ($self, $force) = @_;
+
+	unless ($force) {
+		# --- test for conditions where we can skip processing ---
+		return $self if $self->_ismerging;          # we're currently flattening
+		return $self if $self->_isflat           ;  # we're flat and there are no args
+	}
+	
+	# --- mark that we're currently flattening ---
+	$self->_ismerging(1);
 
 	# --- check values in self and flatten non-scalars ---
+	my @adhd = $self->adhd;
+	my $notflat = 0;
 	foreach my $key (sort keys %$self) {
-		next if $key eq $cfgkey;  # ignore internal configuration
+		next if $key eq $_cfgkey;  # ignore internal configuration
 
 		my $value = $self->{$key};
 
@@ -120,11 +149,13 @@ sub merge {
 
 		if (_isa($value, 'HASH') && ! %$value) {
 			$self->{$key} = {};
+			$notflat = 1;
 		} elsif (_isa($value, 'ARRAY') && ! @$value) {
 			$self->{$key} = [];
+			$notflat = 1;
 		} elsif (_isa($value, 'HASH', 'ARRAY')) {
 			# --- flatten all non-scalars ---
-			my $subhash = flatten($self->{$key}, $key);
+			my $subhash = flatten($self->{$key}, $key, @adhd);
 			delete $self->{$key};
 			my @subkeys = keys %$subhash;
 			map { $self->{$_} = $subhash->{$_} } keys %$subhash;
@@ -132,7 +163,7 @@ sub merge {
 	}
 
 	# --- mark that we're flat and are done flattening ---
-	$self->_isflat(1);
+	$self->_isflat(1) unless $notflat;
 	$self->_ismerging(0);
 
 	return $self;
@@ -142,18 +173,23 @@ sub merge {
 
 # --- flatten a hash (or array) ---
 sub flatten {
-	my ($ds, $prefix) = @_;
+	my ($ds, $prefix, $ad, $hd) = @_;
+
+	# --- set defaults for delimiters ---
+	$ad = ':' unless defined $ad;
+	$hd = '.' unless defined $hd;
+
 	my $flat = {};
 	return $flat unless defined $ds;
 
 	if (ref $ds eq 'HASH') {
 		foreach my $key (keys %$ds) {
-			my $subhash = flatten($ds->{$key}, defined $prefix ? "$prefix.$key" : $key);
+			my $subhash = flatten($ds->{$key}, defined $prefix ? "$prefix$hd$key" : $key, $ad, $hd);
 			map { $flat->{$_} = $subhash->{$_} } keys %$subhash;
 		}
 	} elsif (ref $ds eq 'ARRAY') {
 		for (my $key = 0; $key < @$ds; $key++) {
-			my $subhash = flatten($ds->[$key], defined $prefix ? "$prefix:$key" : $key);
+			my $subhash = flatten($ds->[$key], defined $prefix ? "$prefix$ad$key" : $key, $ad, $hd);
 			map { $flat->{$_} = $subhash->{$_} } keys %$subhash;
 		}
 	} else {
@@ -167,7 +203,7 @@ sub flatten {
 sub unflatten {
 	my $hash = shift;
 
-	# --- get the delimeters ---
+	# --- get the delimiters ---
 	my ($hd, $ad) = ('.', ':');
 	if (_isa($hash, __PACKAGE__)) {
 		$hd = $hash->hashdelim;
@@ -249,8 +285,8 @@ sub interpolate {
 # === Utility Methods =======================================================
 # --- return the untied hash ---
 sub untied {
-	exists $_[0]->{"_untied $cfgkey"}
-		? $_[0]->{"_untied $cfgkey"}
+	exists $_[0]->{"_untied $_cfgkey"}
+		? $_[0]->{"_untied $_cfgkey"}
 		: $_[0];
 }
 
@@ -275,7 +311,7 @@ sub _var {
 	my ($self, $key) = (shift, shift);
 
 	# --- get the vars hash to aviod innecessary calls to self ---
-	my $vars = $self->{$cfgkey} ||= {};
+	my $vars = $self->{$_cfgkey} ||= {};
 
 	# --- get the value ---
 	unless (@_) {
@@ -318,37 +354,47 @@ sub _varDefault {
 # === Hash Tie Stuff ========================================================
 sub TIEHASH  { bless $_[1] || {}, ref($_[0]) || $_[0] }
 sub CLEAR    { delete @{$_[0]}{keys %{$_[0]}} }
-sub DELETE   { delete $_[0]->merge->{$_[1]} }
+sub DELETE   { delete $_[0]->_selfflatten->{$_[1]} }
 
 sub EXISTS {
 	my ($self, $key) = (shift, shift);
 
 	# --- special keys ---
-	return 1 if $key =~ /$cfgkey$/;  # filter internal config
+	return 1 if $key =~ /$_cfgkey$/;  # filter internal config
 
 	# --- force flatten if the key does not exist ---
-	$self->_isflat(0) unless exists $self->{$key};
-	$self->merge;
+	$self->_selfflatten(exists $self->{$key} ? 0 : 1);
 
 	return exists $self->{$key};
+}
+
+sub STORE {
+	my ($self, $key, $value) = @_;
+
+	# --- mark the object as not flat if we're storing a hash or array ref ---
+	$self->_isflat(0)
+		if $key ne $_cfgkey and
+			_isa($value, 'HASH', 'ARRAY');
+
+	# --- set the value and return ---
+	return $self->{$key} = $value;
 }
 
 sub FETCH {
 	my ($self, $key) = (shift, shift);
 
 	# --- special keys ---
-	return $self if $key eq "_untied $cfgkey";   # return untied hash
-	return $self->{$cfgkey} if $key eq $cfgkey;  # filter internal config
+	return $self if $key eq "_untied $_cfgkey";    # return untied hash
+	return $self->{$_cfgkey} if $key eq $_cfgkey;  # filter internal config
 
 	# --- force flatten if the key does not exist ---
-	$self->_isflat(0) unless exists $self->{$key};
-	$self->merge;
+	$self->_selfflatten(exists $self->{$key} ? 0 : 1);
 
 	return $self->{$key};
 }
 
 sub FIRSTKEY {
-	my $self = shift->merge;
+	my $self = shift->_selfflatten;
 
 	# --- reset to first key ---
 	scalar keys %{$self};
@@ -356,7 +402,7 @@ sub FIRSTKEY {
 	# --- return next exposed key ---
 	while (my ($key, $value) = each %{$self}) {
 		return (wantarray ? ($key, $value) : $key)
-			unless $key eq $cfgkey;  # filter internal config
+			unless $key eq $_cfgkey;  # filter internal config
 	}
 
 	return undef;
@@ -365,21 +411,9 @@ sub NEXTKEY  {
 	# --- return next exposed key ---
 	while (my ($key, $value) = each %{$_[0]}) {
 		return (wantarray ? ($key, $value) : $key)
-			unless $key eq $cfgkey;  # filter internal config
+			unless $key eq $_cfgkey;  # filter internal config
 	}
 	return undef;
-}
-
-sub STORE {
-	my ($self, $key, $value) = @_;
-
-	# --- mark the object as not flat if we're storing a hash or array ref ---
-	$self->_isflat(0)
-		if ref $value and $key ne $cfgkey and
-			(_isa($value, 'HASH') or _isa($value, 'ARRAY'));
-
-	# --- set the value and return ---
-	return $self->{$key} = $value;
 }
 
 =head1 NAME
@@ -459,7 +493,7 @@ More code:
   my $nested2 = $obj->unflatten;
 
 When using the OO interface, additional L</OPTIONS> are available to change
-the object's behaviour.
+the object's behavior.
 
 =head1 FUNCTIONAL INTERFACE
 
@@ -528,7 +562,8 @@ Output:
 Creates a new B<HashRef::Flat> object.
 You can pass an existing I<HASH> to seed the object.
 
-Valid I<OPTIONS> are 'HashDelim => I<DELIMETER>' and 'ArrayDelim => I<DELIMETER>'.
+Valid I<OPTIONS> are 'ArrayDelim|AD => I<ARRAYDELIMITER>' and
+'HashDelim|HD => I<HASHDELIMITER>'.
 
 Constructor parameters are case insensitive and can be shortened up to first
 non-unique character, though is recommended to use longer strings to avoid
@@ -542,23 +577,35 @@ See L</Accessors> for details on what these parameters do.
 
 =over 2
 
-=item $obj->B<hashdelim>([I<DELIMETER>])
+=item $obj->B<ad>([I<ARRAYDELIMITER>])
 
-=item $obj->B<arraydelim>([I<DELIMETER>])
+=item $obj->B<arraydelim>([I<ARRAYDELIMITER>])
 
-These accessors allow you to get/set the I<DELIMETER>s used for flattening
+=item $obj->B<hd>([I<HASHDELIMITER>])
+
+=item $obj->B<hashdelim>([I<HASHDELIMITER>])
+
+These accessors allow you to get/set the delimiters used for flattening
 hashes and arrays.
 
-Called without parameters, they return the current I<DELIMETER>.
-With a parameter, they set the value to be used as the I<DELIMETER>.
-If you use C<undef> as the parameter, they reset the delimeter to the default value.
-You may use multi-character strings as I<DELIMETER>s.
+Called without parameters, they return the current delimiter.
+With a parameter, they set the value to be used as the delimiter.
+If you use C<undef> as the parameter, they reset the delimiter to the default value.
+You may use multi-character strings as delimiters.
 
-Delimeters should be set before seeding values into the hash.
+Delimiters should be set before seeding values into the hash.
 See L</CAVEATS> for more details.
 
 Both accessors return the value of the current delimiter.
-Default delimeters are '.' for hashes and ':' for arrays.
+Default delimiters are '.' for hashes and ':' for arrays.
+
+=item $obj->B<adhd>([I<ARRAYDELIMITER>, I<HASHDELIMITER>])
+
+Sets/gets the current array and hash delimieters in a single call.
+Note that unlike the accessors above, using C<undef> will not reset the
+delimieters to default values.
+
+Returns an array containing the array and hash delimieters, in that order.
 
 =back
 
@@ -579,7 +626,7 @@ its contents into the object.
 
 Example pseudocode:
 
-  my $cfg1 = readfile('config1');  # master appplication config
+  my $cfg1 = readfile('config1');  # master application config
   my $cfg2 = readfile('config2');  # host-specific config
   my $cfg3 = readfile('config3');  # environment-specific config
 
@@ -592,7 +639,7 @@ or alternately for tha last few lines:
 
 If called without parameters, only the self-flattening operation will be performed.
 
-Returns C<$obj>;
+Returns C<$obj>
 
 =item $obj->B<unflatten>
 
@@ -600,7 +647,7 @@ Returns a nested hash based on the values stored in the object.
 i.e. the opposite of flatten.
 
 Note that if your keys contain character sequences the same as the
-delimeters, the returned data structure will differ from the original.
+delimiters, the returned data structure will differ from the original.
 For example:
 
   $x->{versionmap}{'2.1.5:2'} = '2.6';
@@ -658,7 +705,7 @@ Any keys that are not in the object/hash remain unrendered.
 Returns the untied, unblessed object.
 
 This is mostly useful for development and debugging.
-It exposes the hidden keys used for configutaion of the object.
+It exposes the hidden keys used for configuration of the object.
 
 =back
 
@@ -666,7 +713,20 @@ It exposes the hidden keys used for configutaion of the object.
 
 =over 2
 
-=item B<Setting Delimeters After Seeding>
+=item B<Setting Delimiters After Seeding>
+
+If you change delimiters after seeding values into the object, existing
+flattened keys will not be converted to use the new delimiters.
+For example:
+
+  $obj->{k1}{1}[0] = 'v1.1:0';
+  $obj->adhd('>', '-');
+  $obj->{k1}{1}[0] = 'v1>1-0';
+
+produces the hash:
+
+  { 'k1.1:0' => 'v1.1:0',
+    'k1-1>0' => 'v1>1-0' }
 
 =item B<Merging vs. Assigning>
 
@@ -730,9 +790,62 @@ The first key processed always wins.
 
 =item B<Storing Empty Hashes and Arrays>
 
+Under certain circumstances, a flattened hash may momentarily contain hash
+and array refs as values.
+This is a requirement due to the order that Perl evaluates operations while
+creating nested structures for code such as the following:
+
+  # --- not auto-flattened on store ---
+  $obj->{k1}->{1} = 'v1.1';
+  $obj->{k2}->[0] = 'v2:0';
+
+This code will perform the same thing, but will automatically be flattened when stored:
+
+  # --- auto-flattened on store ---
+  $obj->{k1} = { 1 => 'v1.1' };
+  $obj->{k2} = [ 'v2:0' ];
+
+In both cases, the object will become flat the next time the object is accessed.
+
+On the other hand, manually adding an empty hash or array ref will return the
+ref until it contains values:
+
+  $obj->{k1} = {};          # insert {} into obj
+  $hash = $obj->{k1};       # returns {}
+  $hash->{1} = 'v1.1';      # add values into hash
+  $value = $obj->{'k1'};    # returns undef (deleted on flatten)
+  $value = $obj->{'k1.1'};  # returns 'v1.1'
+
 =item B<Caution re. Large Datasets>
 
+Due to the heavy internal processing of dynamic flattening, certain
+operations may be time consuming when a large number of flattened keys are in
+the dataset.
+
+The following times were recorded for 1,000,000 key hash on a 2009 MacBook Pro:
+
+  # --- new / mkhash / merge: 12.40 seconds ---
+  my $obj mkflat({ array => [( 0 .. 1000000 )] });
+
+  # --- store, indirect: 13.76 seconds ---
+  $obj->{foo}->{bar} = 'foobar';
+
+  # --- keys + delete: 2.02 seconds ---
+  delete $obj->{(keys %$obj)[0]};
+
+These bits of code were also tested with no notable penalty:
+
+  delete $obj->{'array:0'};         # delete
+  each %$obj; keys %$obj;           # each / keys
+  $obj->{foo} = {bar => 'foobar'};  # store hash, direct
+  $obj->{foo} = 'foobar';           # store scalar
+
+Other operations were not tested.
+
 =item B<We are Threadsafe!>
+
+No caveat here.
+Just a declaration :)
 
 =back
 
