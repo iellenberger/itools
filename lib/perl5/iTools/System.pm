@@ -10,7 +10,7 @@ $VERSION = "0.01";
 	rename link unlink
 	vbase
 ),
-	#! it's getting close to the time to deprecate these:
+#! it's getting close to the time to deprecate these:
 #qw(
 #	colored
 #	indent verbosity vprint vprintf vnprint vnprintf vtmp
@@ -39,18 +39,17 @@ sub vbase     { _varDefault(2, 'vbase', @_) }
 #sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift, @_) }
 #sub vprintf   { iTools::Verbosity::vprintf(shift, '>'. shift, @_) }
 #sub indent    { iTools::Verbosity::vindent(@_) }
-sub vtmp(&$) {
-	my ($code, $level) = @_;
-	vpush $level; my $retval = &$code; vpop;
-	return $retval;
-}
+#sub vtmp(&$) {
+#	my ($code, $level) = @_;
+#	vpush $level; my $retval = &$code; vpop;
+#	return $retval;
+#}
 sub logfile { iTools::Verbosity::vlogfile(@_) }
 sub logonly {
 	iTools::Verbosity::vloglevel(iTools::Verbosity::verbosity());
 	vpush -3;
 }
-
-sub colored   { iTools::Term::ANSI::colored(@_) }
+#sub colored   { iTools::Term::ANSI::colored(@_) }
 
 # === Accessors =============================================================
 # --- should errors be fatal? ---
