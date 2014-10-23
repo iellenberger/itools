@@ -43,13 +43,13 @@ sub uri {
 		my ($scheme, $auth, $path, $query, $frag) = 
 			($self->scheme, $self->authority, $self->path, $self->query, $self->fragment);
 
-		# --- build the authority ---
+		# --- build the URI ---
 		my $uri = 
 			($scheme ? $scheme .':' : '') .
-			($auth ? '//'. $auth : '') .
+			($auth   ? '//'. $auth  : '') .
 			($path || '') .
-			($query ? '?'. $query : '') .
-			($frag ? '#'. $frag : '');
+			($query  ? '?'. $query  : '') .
+			($frag   ? '#'. $frag   : '');
 
 		# --- undef if blank and return ---
 		$uri = undef if $uri eq '';
