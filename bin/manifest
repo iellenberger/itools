@@ -9,8 +9,6 @@ BEGIN {
 		exec $0,@ARGV;
 }	}
 
-use feature qw( switch );
-
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1;
 use Cwd;
 use Digest::MD5 qw( md5_hex );
@@ -20,6 +18,10 @@ use Symbol;
 
 use strict;
 use warnings;
+
+# --- remove warnings for switch in Perl >= 5.18 ---
+#! TODO: need to watch if this feature is deprecaated in future versions of Perl
+use feature qw( switch ); no if $] >= 5.018, warnings => "experimental::smartmatch";
 
 # === CLI Options ===========================================================
 my $options = configure({
@@ -697,7 +699,7 @@ Generate Options:
       -a, --append     append to --output file
 
 Diff Options:
-	-o, --old           show files only in OLD (1st file)
+   -o, --old           show files only in OLD (1st file)
    -c, --changed       show changed files
    -u, --unchanged     show unchanged files
    -n, --new           show files in NEW (2nd file)
@@ -1134,6 +1136,34 @@ Use the Perl module 'Storable' for storing manifests in binary format.
 Because it is a binary format and we no longer have to worry about readability,
 the the entire stat hash for each file as well as
 other general information about the manifest (like version) can be stored.
+
+=item TODO: B<Add '--exclude' option>
+
+Create an option where a person could exclude files/dirs from the processed list.
+These would be applied after the 'include' (a.k.a. LIST) is processed.
+
+This may be possible by using a prefix before the filename in the list (ex: !/some/file)
+though this may require us to process escapes in the case that the prefix is
+part of a real file/dir name.
+
+=item TODO: B<Add a metadata header>
+
+This opens up a whole new set of possibilities:
+
+B<Capture generation metadata>.
+Who, when, where, etc.
+
+B<Capture generation arguments>.
+Would provide the benefit of being able to re-run the exact command used
+to generate the original manifest, among other things.
+
+This would require, at minimum, a header to be included in the manifest.
+Changing the file format brings about the usual issues re. backward/forward compatability.
+
+=item TODO: B<Track usernames>
+
+This could be done instead of UIDs or in addition to UIDs.
+Could also be done via mapping if we added header metadata to the manifest.
 
 =back
 
