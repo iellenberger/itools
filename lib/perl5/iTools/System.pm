@@ -20,7 +20,7 @@ $VERSION = "0.01";
 use Carp qw( cluck confess );
 use Cwd;
 use iTools::Term::ANSI qw( color );
-use iTools::Verbosity qw( vpush vpop vprint vprintf );
+use iTools::Verbosity qw( verbosity vpush vpop vprint vprintf );
 use IPC::Open3;
 use Symbol;
 
