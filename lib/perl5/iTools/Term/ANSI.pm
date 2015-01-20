@@ -248,7 +248,7 @@ sub cpop {
 	return colored() ? $ansi : '';
 }
 
-# --- provate method for converting color codes to ANSI ---
+# --- private method for converting color codes to ANSI ---
 sub _colorCode2ANSI {
 	my $codes = shift;
 	# --- no code, return empty string ---
