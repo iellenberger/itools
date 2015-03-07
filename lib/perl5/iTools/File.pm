@@ -66,14 +66,7 @@ sub writefile {
 	return $content;
 }
 
-# --- requires 5.10 - Ubuntu LTS 8.04 only has 5.8 ---
-# use feature qw( switch );
-
 sub _die {
-#	given ($iTools::File::Die) {
-#		when (0) { cluck @_ }
-#		when (1) { confess @_ }
-#	}
 	SWITCH: {
 		$iTools::File::Die == 0 && cluck @_;
 		$iTools::File::Die == 1 && confess @_;
@@ -146,10 +139,6 @@ Make the append functionality do a seek to end before write to avoid reading the
 
 Make the touch functionality more efficient or create a separate sub.
 
-=item B<Update for Perl 5.10+>
-
-When Perl5.10 becomes common, update code (documented interally) for that release.
-
 =back
 
 =head1 KNOWN ISSUES AND BUGS
@@ -167,7 +156,7 @@ Ingmar Ellenberger
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2012 by Ingmar Ellenberger and distributed under The Artistic License.
+Copyright (c) 2001-2015 by Ingmar Ellenberger and distributed under The Artistic License.
 For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
 or read the F<LICENSE> in the root of the iTools distribution.
 
