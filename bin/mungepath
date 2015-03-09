@@ -1,0 +1,388 @@
+#!/usr/bin/perl -w
+our $VERSION="o.0.1";
+
+use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=$Data::Dumper::Terse=1; # for debugging only
+
+use Getopt::Long;
+
+use strict;
+use warnings;
+
+# === CLI Options ===========================================================
+# --- load up all the options ---
+my $options = configure({
+	before => [],
+	after  => [],
+	remove => [],
+	path   => $ENV{PATH},
+	nl     => 1,
+});
+
+print Dumper($options);
+
+# === Configuration and Globals =============================================
+
+# --- prototypes ---
+sub remove(\@@);
+sub contains(\@@);
+sub contains_or(\@@);
+
+# === Main Body of Code =====================================================
+
+# --- exiting path --
+my @path   = split ':', $options->{path};
+# --- shorter names for commonly used vars ---
+my @before = @{$options->{before}};
+my @after  = @{$options->{after}};
+
+# --- remove dirs ---
+@path = remove(@path, @{$options->{remove}});
+
+# --- pre-remove dups --
+if ($options->{force}) {
+	# --- remove @before and @after from @path to force changes ---
+	@path   = remove @path, @before, @after;
+} else {
+	# --- don't change if DIR already in path ---
+	@after  = remove @after, @path;
+	@before = remove @before, @path;
+}
+
+# --- build new path array ---
+@path = ( @before, @path, @after );
+
+# --- print processed path, removing dups ---
+print join(':', uniq(@path)) . ($options->{nl} && "\n")
+	unless $options->{verbosity} < 0;
+
+# --- exit based on --contains ---
+if ($options->{contains}) {
+	exit contains_or(@path, @{$options->{contains}})
+		if $options->{'or'};
+	exit contains(@path, @{$options->{contains}});
+}
+
+# --- normal exit ---
+exit 0;
+
+# === Functions =============================================================
+
+# --- remove matching elements from an array ---
+sub remove(\@@) {
+	my $path = shift;
+	my %rm = map { $_ => 1 } @_;
+	return grep { !$rm{$_} } @$path;
+}
+
+# --- remove matching elements from an array ---
+sub contains(\@@) {
+	my %path = map { $_ => 1 } @{shift()};
+	my %has = map { $_ => 1 } @_;
+	foreach my $key (keys %has) {
+		return 1 unless $path{$key};
+	}
+	return 0;
+}
+
+# --- remove matching elements from an array ---
+sub contains_or(\@@) {
+	my %path = map { $_ => 1 } @{shift()};
+	my %has = map { $_ => 1 } @_;
+	foreach my $key (keys %has) {
+		return 0 if $path{$key};
+	}
+	return 1;
+}
+
+# --- return unique array ---
+sub uniq { my %h; grep { !$h{$_}++ } @_ }
+
+# === Configuration and Usage ===============================================
+sub configure {
+	usage() unless @ARGV; # force help message if no arguments
+
+	# --- parse the command line options ---
+	my $options = shift || {};
+	Getopt::Long::Configure('bundling');
+	GetOptions($options,
+		# --- core parameters ---
+		'help|?+', 'man+',  # usage and man pages
+		'quiet|q+',         # do things quietly
+		#'verbose|v+',       # do things loudly (unused)
+		'verbosity=n',      # set an explicit verbosity level (hidden)
+		'version+',         # show the version (hidden)
+
+		# --- path manipulation --
+		'remove|r=s@',      # remove
+		'before|b=s@',      # prepend (default behavior, hidden)
+		'after|a=s@',       # append
+		'force|f+',         # force moving dirs in path
+
+		# --- other options ---
+		'path|p=s',         # path to change
+		'contains|c=s@',    # contains
+		'or+',              # makes --contains 'or'
+		'bash+',            # allows '/dir after' syntax
+		'nl!',              # add \n at the of results
+	);
+
+	# ---- pathmunge() compatibility mode ---
+	if ($options->{bash}) {
+		# --- undo any compatibility-breaking options ---
+		delete @{$options}{qw( help man version quiet contains )};
+		$options->{path} = $ENV{PATH};
+		# --- process "/dir after" form of arguments ---
+		if ($ARGV[1] && $ARGV[1] eq 'after') {
+			unshift @{$options->{after}}, shift @ARGV;
+			shift @ARGV;  # toss out the 'after' parameter
+		}
+	}
+
+	# --- show usage, man page or version ---
+	$options->{help}    and do { usage() };
+	$options->{man}     and do { exec "perldoc $0" };
+	$options->{version} and do { print "$::VERSION\n"; exit 0 };
+
+	# --- verbosity ---
+	usage("can't be quiet and verbose at the same time")
+		if $options->{quiet} and $options->{verbose};
+	$options->{verbosity} = ($options->{verbose} || 0) - ($options->{quiet} || 0);
+	delete @{$options}{qw(quiet verbose)};
+
+	# --- convert remaining standalone args to --before ---
+	$options->{before} = [ @{$options->{before}}, @ARGV ];
+
+	return $options;
+}
+
+sub usage {
+	my $error = shift;
+	my $progname = ($0 =~ /([^\/]*)$/)[0] || $0;
+
+	print STDERR qq[\nerror: $error\n] if $error;
+	print STDERR qq(
+usage: $progname [options] DIR [...]
+
+   -?, --help         display this message
+      --man              display the manual page for $progname
+   -q, --quiet        do things quietly
+   --version          show version
+
+   -a, --after DIR    adds DIR to end of path
+   -r, --remove DIR   removes DIR from path
+   -f, --force        force DIRs to move to beginning/end of path
+   -p, --path PATH    use PATH
+
+   -c, -contains DIR  true if DIR in path
+      --or               multiple --contains will 'or', not 'and'
+   --bash             enable pathmunge() compatibility
+   --nonl             supress newline at end of results
+
+$progname, version $::VERSION
+
+);
+	exit 1;
+}
+
+=head1 NAME
+
+mungepath - extended version of Bash's pathmunge()
+
+=head1 SYNOPSIS
+
+ mungepath {-?|--man}
+ mungepath [-q] [-a DIR] [-r DIR] [-c DIR] [-p PATH] [DIR]
+
+=head1 DESCRIPTION
+
+B<mungepath> is a utility to modify PATHs.
+It allows you to append, prepend and delete DIRs in a PATH,
+and test if one or more a DIRs are in a PATH.
+
+The processed PATH is printed to STDOUT (unless B<--quiet> is specified).
+
+=head1 EXAMPLES
+
+Here are some basic examples:
+
+  mungepath /dir             # add /dir to beginning of PATH
+  mungepath --force /dir     # add or move /dir to beginning of PATH
+  mungepath --after /dir     # add /dir to end of PATH
+  mungepath --remove /dir    # remove /dir from PATH
+  mungepath --contains /dir  # true if PATH contains /dir
+  mungepath /mandir --path $MANPATH  # use $MANPATH as PATH
+
+=head2 Specifying multiple DIRs
+
+B<mungepath> allows you to specify multiple DIRs in a single command.
+For example:
+
+  mungepath -f /dir1 /dir2 -a /dir3 -a /dir4 -r /dir5 -r /dir6
+
+will modify the PATH by
+adding or moving '/dir1:/dir2' to beginning,
+adding or moving '/dir3:/dir4' to the end, and
+removing /dir5 and /dir6.
+
+=head2 DIR Processing Order
+
+All DIRs are added to the PATH in the order they appear on the command line.
+B<--remove> commands are process before other options, so:
+
+  mungepath /dir --remove /dir
+
+is functionally equivalent to:
+
+  mungepath --force /dir
+
+=head2 Using --contains
+
+B<mungepath> allows you test whether a DIR is in the PATH with the B<--contains> parameter.
+If multiple B<--contains> are specified, B<mungepath> will return true if *all* DIRs are found
+(logical 'and').
+
+  mungepath -q -c /dir1 -c /dir2
+
+Specifying B<--or> will return true if *any* DIR is found
+(logical 'or').
+
+  mungepath -q -c /dir1 --or -c /dir2
+
+Note that B<--or> is not positional and only needs to be specified once in the command line
+(though having it multiple times doesn't hurt either).
+
+=head2 Duplicates DIRs in PATH.
+
+B<mungepath> automatically removes duplicate directories from the PATH,
+keeping the earliest instance in tact.
+
+=head1 BASH pathmunge() COMPATIBILITY
+
+B<mungepath> has a backwards compatible mode for Bash's pathmunge() function
+invoked with the B<--bash> flag.
+
+Here are two ways Bash's pathmunge() can be called:
+
+  pathmunge /dir        # add dir before $PATH
+  pathmunge /dir after  # add dir after $PATH
+
+B<mungepath> is directly compatible with the first line.
+For the second, the B<--bash> flag must be passed to B<mungepath> to ensure compatibility.
+As such the following two lines are identical:
+
+  mungepath --bash /dir after
+  mungepath --after /dir
+
+=head2 Differences
+
+B<mungepath>, unlike it's Bash counterpart removes duplicates from the PATH,
+keeping the earliest instance of a given dir.
+
+This will not functionally change the way Bash handles the path.
+
+=head2 Replacing pathmunge()
+
+Replace the existing pathmunge() function with the following one-liner:
+
+  pathmunge() { export PATH=$(mungepath --bash --nonl $@) }
+
+The replacement pathmunge() will allow the end user to use the B<--after>, B<--delete> and B<--force> options.
+All other options are suppressed to ensure compatibility.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<-?>, B<--help>; B<--man>
+
+Display a short usage message, or the full manual page (sic).
+
+=item B<-a>, B<--after> DIR
+
+Append DIR to the end of tha PATH.
+May be specified multiple times.
+
+=item B<--bash>
+
+Enable Bash pathmunge() compatibility.
+This allows the C<pathmunge /dir after> syntax and supresses options that would break compatibility.
+
+=item B<-c>, B<--contains> DIR; B<--or>
+
+Test whether DIR is in the PATH.
+DIR must be an exact, full match.
+Wildcards and partial matches are not supported.
+Returns the exit value '1' if true, '0' if false.
+
+If multiple B<--contains> are specified, B<mungepath> will return true if *all* DIRs are found.
+Specifing B<--or> will return true if *any* DIR is found.
+
+=item B<-f>, B<--force>
+
+Force DIRs to be moved to beginning/end of the PATH.
+
+Normally, B<mungepath> will discard requests to add a DIR that is already in PATH.
+The B<--force> option removes the DIR from the original PATH
+before adding it back at the beginning/end of the PATH.
+
+=item B<--nonl>
+
+Do not add a newline at the end of the resulting PATH.
+This ensures that there is no unnecessary whitespace at the beginning or end of the processed PATH.
+
+=item B<-p>, B<--path> PATH
+
+By default, B<mungepath> uses the environment variable $PATH as the path to process.
+The B<--path> parameter allow you to specify an alternate path.
+
+=item B<-q>, B<--quiet>
+
+Don't print out the resulting PATH.
+Useful in conjusction with B<--contains>.
+
+=item B<-r>, B<--remove> DIR
+
+Remove DIR from the PATH.
+DIR must be an exact, full match.
+Wildcards and partial matches are not supported.
+
+May be specified multiple times.
+DIRs not found in the PATH are quietly ignored.
+
+=back
+
+=head1 TODO, KNOWN ISSUES AND BUGS
+
+=over 4
+
+=item B<Feature: Regex Matching>
+
+For B<--remove> and B<--contains>.
+Not hard to do - just need to figure out a sensible CLI syntax.
+
+=item B<Feature: User-defined Separator>
+
+Again, not hard.  Just have to do it.
+
+=item B<Feature: Escapes>
+
+PATHs can contain whitespace, unescaped quotes and other onnoyances.
+Find a way to deal with ttat.
+
+=back
+
+=head1 AUTHOR
+
+Written by Ingmar Ellenberger.
+
+=head1 COPYRIGHT
+
+Copyright (c) 2015, Ingmar Ellenberger.
+Distributed under the Artistic License.
+For the text the license, see L<https://github.com/iellenberger/itools/blob/master/LICENSE>
+or read the F<LICENSE> in the root of the iTools distribution.
+
+=head1 SEE ALSO
+
+=cut
+
