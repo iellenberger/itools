@@ -20,7 +20,7 @@ $VERSION = "0.01";
 use Carp qw( cluck confess );
 use Cwd;
 use iTools::Term::ANSI qw( color );
-use iTools::Verbosity qw( verbosity vpush vpop vprint vprintf );
+use iTools::Verbosity qw( verbosity vpush vpop vprint vprintf vindent );
 use IPC::Open3;
 use Symbol;
 
@@ -123,7 +123,7 @@ sub system {
 	};
 
 	# --- error executing command ---
-	my $message = "the command did not succesfully execute:\n" . indent() . join(' ', @cmd) ."\n";
+	my $message = "the command did not succesfully execute:\n" . vindent() . join(' ', @cmd) ."\n";
 	if ($? == -1) {
 		$message .= "failed to execute: $!";
 	} elsif ($? & 127) {
@@ -153,7 +153,7 @@ sub command($;%) {
 
 	# --- error executing command ---
 	if ($stat) {
-		$message = "the command did not succesfully execute:\n" . indent() ."$cmd\n";
+		$message = "the command did not succesfully execute:\n" . vindent() ."$cmd\n";
 		if ($? == -1) {
 			$message .= "failed to execute: $!";
 		} elsif ($? & 127) {
