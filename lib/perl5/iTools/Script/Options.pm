@@ -212,6 +212,7 @@ sub man {
 	# --- get vars and set defaults ---
 	my $vars = $self->manvars;
 	$vars->{PROGRAM} ||= $RealScript;
+	$vars->{VERSION} ||= $::VERSION;
 	$vars->{COREOPTS} ||= $mancoreopts; $vars->{COREOPTS} =~ s/^\t//mg;
 
 	#! TODO: detect if this var has a space before it. Add a space if it doesn't.
