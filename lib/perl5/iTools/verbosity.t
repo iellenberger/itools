@@ -27,7 +27,7 @@ tprint vlogfile($logfile) eq $logfile, "log filename set via vlogfile('$logfile'
 tprint verbosity(-3) == -3, "verbosity set to -3 (all output will go to logfile";
 tprint vloglevel(0) == 0, "log verbosity set to 0";
 
-print "\nBasic Verbosity Tests:\n";
+print "\nBasic Verbosity Tests, level 0:\n";
 tprint vlog(0, "log0 v0\n"), "vprint(0) w/o indent";
 tprint logmatch('^log0 v0$'), "   validated";
 tprint vlog(0, ">log0 v0 indent\n"), "vprint(0) with indent";
@@ -35,7 +35,12 @@ tprint logmatch('^log0 v0 indent$'), "   validated";
 tprint !vlog(1, "log0 v1\n"), "vprint(1)";
 tprint logmatch('.*') == -1, "   validated";
 
-print "\nBasic Verbosity Tests:\n";
+print "\nNull field test\n";
+tprint vlog(0),        "no parameters";
+tprint vlog(0, ''),    "blank field";
+tprint vlog(0, undef), "undefined field";
+
+print "\nBasic Verbosity Tests, level 1:\n";
 tprint vloglevel(1) == 1, "log verbosity set to 1";
 tprint vlog(0, "log1 v0\n"), "vprint(0) w/o indent";
 tprint logmatch('^log1 v0$'), "   validated";
@@ -45,6 +50,7 @@ tprint vlog(1, "log1 v1\n"), "vprint(1)";
 tprint logmatch('^log1 v1$'), "   validated";
 tprint vlog(1, ">log1 v1 indent\n"), "vprint(1) with indent";
 tprint logmatch('^   log1 v1 indent$'), "   validated";
+
 
 print "\nCleanup:\n";
 tprint close($logfh), "closing logfile '$logfile'"
@@ -72,7 +78,8 @@ sub logmatch {
 
 	# --- trim the line ---
 	chomp $line;
-	$line =~ s/^\[[^\]]*?\]\s//;
+	#$line =~ s/^\[[^\]]*?\]\s//;
+	$line =~ s/^\[.*\]\s//;
 
 	# --- test the line ---
 	return $line =~ /$regex/ ? 1 : 0;

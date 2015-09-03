@@ -60,7 +60,7 @@ sub vindent {
 # === Print Depending on Verbosity ==========================================
 # --- print message based on verbosity ---
 sub vprint {
-	my ($level, $text) = (shift, join('', @_));
+	my ($level, $text) = (shift, join('', _undef2null(@_)));
 
 	# --- write log entry ---
 	vlog($level, $text);
@@ -82,7 +82,7 @@ sub vprintf {
 
 	# --- render and print ---
 	my $message = $format;
-	if (@_) { $message = sprintf $format, @_ }
+	if (@_) { $message = sprintf $format, _undef2null(@_) }
 	vprint $level, $message;
 }
 
@@ -150,7 +150,7 @@ sub vloglevel {
 
 # --- send a message to the logfile ---
 sub vlog {
-	my ($level, $text) = (shift, join('', @_));
+	my ($level, $text) = (shift, join('', _undef2null(@_)));
 
 	# --- don't print anything above the current log verbosity level ---
 	return 0 unless vloglevel >= $level;
@@ -171,12 +171,12 @@ sub vlog {
 
 	return 0;
 }
-sub vlogf { vlog shift, sprintf(shift, @_) }
+sub vlogf { vlog shift, sprintf(shift, _undef2null(@_)) }
 
 # === Private Methods =======================================================
 # --- parse text for indents 'n stuff ---
 sub _vparse {
-	my ($level, $text) = (shift, join('', @_));
+	my ($level, $text) = (shift, join('', _undef2null(@_)));
 
 	# --- get indent length and set the indent flag ---
 	$text =~ s/^(>*)//;
@@ -232,6 +232,11 @@ sub _var {
 
 	# --- set and return the value ---
 	return $CONFIG->{$key} = shift;
+}
+
+# --- replaces undef values with blank strings ---
+sub _undef2null {
+	map { defined $_ ? $_ : '' } @_;
 }
 
 1;
