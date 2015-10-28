@@ -73,6 +73,7 @@ sub new {
 
 	# --- set default values ---
 	map { $self->{$_} = $defaults->{$_} unless exists $self->{$_} } keys %$defaults;
+	$::VERSION ||= 0;
 
 	return $INSTANCE = $self;
 }
@@ -101,7 +102,7 @@ sub usagetext {
 	unshift @_, _undent(shift)
 		if @_ && defined $_[0];
 
-	$self->_var(_usage => @_)
+	$self->_var(_usage => @_) || '';
 }
 
 # --- return core CLI flags ---
