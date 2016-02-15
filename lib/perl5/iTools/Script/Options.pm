@@ -27,7 +27,11 @@ our $mancoreopts = <<MANCORE;
 
 	Display a short usage message, or the full manual page (sic).
 
-	=item B<-q>, B<--quiet>; B<-v>[B<vvv>], B<--verbose>; B<-V>, B<--verbosity> LEVEL
+	=item B<-q>, B<--quiet>
+	
+	=item B<-v>[B<vvv>], B<--verbose>
+	
+	=item B<-V>, B<--verbosity> LEVEL
 
 	Do things quietly or loudly.
 	There are several incremental levels of verbosity (LEVEL in brackets) :
@@ -42,6 +46,10 @@ our $mancoreopts = <<MANCORE;
 	=item B<--[no]color>
 
 	Enable or disable colored terminal output.
+
+	=item B<--version>
+
+	Show the version number
 
 	=back
 MANCORE
@@ -73,7 +81,6 @@ sub new {
 
 	# --- set default values ---
 	map { $self->{$_} = $defaults->{$_} unless exists $self->{$_} } keys %$defaults;
-	$::VERSION ||= 0;
 
 	return $INSTANCE = $self;
 }
@@ -102,7 +109,7 @@ sub usagetext {
 	unshift @_, _undent(shift)
 		if @_ && defined $_[0];
 
-	$self->_var(_usage => @_) || '';
+	$self->_var(_usage => @_)
 }
 
 # --- return core CLI flags ---
