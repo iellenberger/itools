@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<puma>
+	<config cascade="on" file=".puma" />
+
+	<!-- browser session cookie -->
+	<cookie name="Global" />
+	<session context="session" location="/ITOOLS_ROOT/var/state/puma/session" preload="true"
+		cookie="Global" module="Puma::Object::Session" prefix="session" />
+
+	<!-- user cookie, expires 30 days after last access -->
+	<cookie name="Global30d" expires="+30d" />
+	<session context="user" location="/ITOOLS_ROOT/var/state/puma/user" preload="true"
+		cookie="Global30d" module="Puma::Object::User" prefix="user" />
+
+</puma>
