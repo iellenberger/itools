@@ -62,13 +62,6 @@ sub save {
 	$self->serialize($file);
 }
 
-
-
-
-
-
-
-
 # === Method Extended from Puma::Object::Serial =============================
 # --- make a clone of self and remove all data we don't want to serialize ---
 sub serial {
@@ -78,19 +71,3 @@ sub serial {
 }
 
 1;
-
-__END__
-
-sub construct {
-	my ($self, %args) = @_;
-
-	$args{UID} = $args{Server}->getCookie($args{UseCookie})->value()
-		if exists $args{Server} && defined $args{Server} &&
-		   exists $args{UseCookie} && defined $args{UseCookie};
-
-	%args = $self->SUPER::construct(%args);
-
-	$self->load();
-
-	return %args;
-}
