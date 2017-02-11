@@ -1,0 +1,29 @@
+
+CGI.pm - manpage
+Server.pm - unit tests
+Server.pm - manpage
+
+# -----------------------------------------------------
+
+Config.pm
+	start with implementation of etc/puma/puma.xml (modify path/file w/ object params)
+	do tree walking next
+
+Server.pm
+	fake out CGI
+
+Tag.pm
+
+Engine.pm
+
+puma.cgi
+
+
+
+Do this last:
+
+Create an object for generic access to stateful data
+	- use as both file and orb interface (eventually db?)
+	- perhaps an entire class of objects
+
+
