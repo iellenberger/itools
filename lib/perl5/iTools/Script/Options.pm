@@ -1,6 +1,6 @@
 package iTools::Script::Options;
 use base qw( iTools::Core::Accessor );
-our $VERSION = "0.1";
+our $VERSION = "0.2";
 
 use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
 
@@ -145,6 +145,9 @@ sub parse {
 		'color!',             # colored output
 		'debug+',             # debug output
 
+		# --- secret options ---
+		'_pod+',              # gererate POD
+
 		# --- options for user switching ---
 		'isorundir=s',        # set the running directory for new user (only used internally)
 
@@ -153,8 +156,8 @@ sub parse {
 	);
 
 	# --- show usage or man page ---
-	$self->{help}    && do { $self->usage() };
-	$self->{man}     && $self->man;
+	$self->{help} && do { $self->usage() };
+	($self->{man} || $self->{_pod}) && $self->man;
 	$self->{version} && do { print "$::VERSION\n"; exit 0 };
 
 	# --- minimum arguments required ---
@@ -199,7 +202,6 @@ sub usage {
 usage: $Script [-qv] $usageformat
 
 Options:
-
    -?, --help          display this message
       --man               display the manual page for $Script
    -q[q], --quiet      do things quietly
@@ -224,8 +226,8 @@ sub man {
 	$vars->{COREOPTS} ||= $mancoreopts; $vars->{COREOPTS} =~ s/^\t//mg;
 
 	#! TODO: detect if this var has a space before it. Add a space if it doesn't.
-	#! TODO: figure out a better way to format this se we don't have to put a space in front of it.
-	$vars->{SYNOPSIS} ||= "$vars->{PROGRAM} {-?|--man}\n $vars->{PROGRAM} [-qv[vv]] ". $self->usageformat() ."\n";
+	#! TODO: figure out a better way to format this so we don't have to put a space in front of it.
+	$vars->{SYNOPSIS} ||= "$vars->{PROGRAM} {-?|--man}\n $vars->{PROGRAM} [-qv[vv]] ". $self->usageformat();
 
 	# --- get the terminal size ---
 	my $cols = (Term::ReadKey::GetTerminalSize())[0] || 78;
@@ -237,8 +239,21 @@ sub man {
 
 	# --- interpolate variables ---
 	foreach my $key (keys %$vars) {
-		$content =~ s/[\$=]{$key}(?=\W)/$vars->{$key}/sg;
+		$content =~ s/[\$=]\{$key}(?=\W)/$vars->{$key}/sg;
 		$content =~ s/[\$=]$key(?=\W)/$vars->{$key}/sg;
+	}
+
+	# --- display POD instead ---
+	if ($self->{_pod}) {
+		# --- remove non-pod ---
+		my $podwords = "^=pod|^=head|^=over|^=item|^=back|^=begin|^=end|^=for|^=encoding";
+		$content =~ s/.*?(?=$podwords)//ms;           # everything before the first podword
+		$content =~ s/(?:^=cut).*?(?=$podwords)//ms;  # between '=cut' and podwords
+		$content =~ s/(?<=^=cut).*/\n/ms;             # after last '=cut'
+
+		# --- show POD and exit ---
+		print $content;
+		exit 1;
 	}
 
 	# --- generate the manpage ---

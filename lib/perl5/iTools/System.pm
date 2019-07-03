@@ -1,20 +1,14 @@
 package iTools::System;
 use base Exporter;
-$VERSION = "0.01";
+$VERSION = "0.02";
 
-@EXPORT_OK = (qw(
+@EXPORT_OK = qw(
 	fatal nofatal
 	die warn
 	system command
 	mkdir chdir mkcd symlink pushdir popdir
 	rename link unlink
 	vbase
-),
-#! it's getting close to the time to deprecate these:
-#qw(
-#	colored
-#	indent verbosity vprint vprintf vnprint vnprintf vtmp
-#)
 );
 
 use Carp qw( cluck confess );
@@ -22,7 +16,9 @@ use Cwd;
 use iTools::Term::ANSI qw( color );
 use iTools::Verbosity qw( verbosity vpush vpop vprint vprintf vindent );
 use IPC::Open3;
+use POSIX qw( WNOHANG );
 use Symbol;
+use Time::HiRes qw( usleep );
 
 use strict;
 use warnings;
@@ -32,24 +28,11 @@ our $CONFIG = { };
 
 # === Deprecated Calls ======================================================
 sub vbase     { _varDefault(2, 'vbase', @_) }
-# --- the following calls will be removed in the next version of iTools::System ---
-#sub verbosity { iTools::Verbosity::verbosity(@_) }
-#sub vnprint   { iTools::Verbosity::vprint(@_) }
-#sub vnprintf  { iTools::Verbosity::vprintf(@_) }
-#sub vprint    { iTools::Verbosity::vprint(shift, '>'. shift, @_) }
-#sub vprintf   { iTools::Verbosity::vprintf(shift, '>'. shift, @_) }
-#sub indent    { iTools::Verbosity::vindent(@_) }
-#sub vtmp(&$) {
-#	my ($code, $level) = @_;
-#	vpush $level; my $retval = &$code; vpop;
-#	return $retval;
-#}
 sub logfile { iTools::Verbosity::vlogfile(@_) }
 sub logonly {
 	iTools::Verbosity::vloglevel(iTools::Verbosity::verbosity());
 	vpush -3;
 }
-#sub colored   { iTools::Term::ANSI::colored(@_) }
 
 # === Accessors =============================================================
 # --- should errors be fatal? ---
@@ -115,10 +98,10 @@ sub system {
 	}
 
 	# --- run the command ---
-	vprint vbase(), color('c', "executing: ") . join(' ', @cmd) ."\n";
+	vprint vbase(), '>'. color('c', "executing: ") . join(' ', @cmd) ."\n";
 	my $retval = system(@cmd) == 0 && do {
 		# --- clean exit ---
-		vprint vbase() + 1, color('g', "command completed successfully") ."\n";
+		vprint vbase() + 1, '>'. color('g', "command completed successfully") ."\n";
 		return 0;
 	};
 
@@ -138,16 +121,26 @@ sub system {
 }
 
 # --- qx replacement ---
-sub command($;%) {
-	my ($cmd, %extinfo) = @_;
+sub command($;\%) {
+	my ($cmd, $extinfo) = @_;
 
 	# --- use open3 to run command and capture stdout and stderr ---
 	my ($out, $err) = (gensym, gensym);
-	vprint vbase(), color('c', "executing: ") ."$cmd\n";
+	vprint vbase(), '>'. color('c', "executing: ") ."$cmd\n";
 	my $pid = open3 undef, $out, $err, $cmd;
 
 	# --- wait for process to complete and capture return status ---
-	waitpid $pid, 0;
+	local $/;
+	my ($outbuff, $errbuff) = ('', '');
+
+	my $deadpid;
+	do {
+		usleep 10000;
+		$deadpid = waitpid $pid, WNOHANG;
+		$outbuff .= <$out> || '';
+		$errbuff .= <$err> || '';
+	} until $deadpid;
+
 	my $stat = $? >> 8;
 	my $message;
 
@@ -166,21 +159,21 @@ sub command($;%) {
 	# --- command executed successfully ---
 	else {
 		$message = 'command completed successfully';
-		vprint vbase() + 1, color('g', "$message") ."\n";
+		vprint vbase() + 1, '>'. color('g', "$message") ."\n";
 	}
 
 	# --- build the %extinfo hash ---
 	local $/;
-	%extinfo = (
-		stdout  => <$out> || '',
-		stderr  => <$err> || '',
+	%$extinfo = (
+		stdout  => $outbuff || '',
+		stderr  => $errbuff || '',
 		pid     => $pid,
 		status  => $stat,
 		message => $message,
 	);
 
 	# --- return stdout ---
-	return wantarray ? split(/[\r\n]/, $extinfo{stdout}) : $extinfo{stdout};
+	return wantarray ? split(/[\r\n]/, $extinfo->{stdout}) : $extinfo->{stdout};
 }
 
 # === Filesystem Tools ======================================================
@@ -192,7 +185,7 @@ sub mkdir {
 	PATH: foreach my $path (@_) {
 		next if -d $path;  # do nothing if it already exists
 
-		vprint vbase(), color('c', "mkdir: ") ."$path\n";
+		vprint vbase(), '>'. color('c', "mkdir: ") ."$path\n";
 
 		# --- make a directory list ---
 		my @dirs = split /\//, $path;                                  # split path into components
@@ -205,7 +198,7 @@ sub mkdir {
 
 			# --- skip dir if it already exists ---
 			if (-d $path) {
-				vprint vbase() + 1, "mkdir $path". color('y', " (already exists)") ."\n";
+				vprint vbase() + 1, '>'. "mkdir $path". color('y', " (already exists)") ."\n";
 				next;
 			}
 
@@ -217,14 +210,14 @@ sub mkdir {
 				$goodpath = $retval = 0;
 				last;
 			}
-			vprint vbase() + 1, "mkdir $path\n";
+			vprint vbase() + 1, '>'. "mkdir $path\n";
 			mkdir $path, 0755 or do {
 				iTools::System::die("error creating directory '$path': $!");
 				$goodpath = $retval = 0;
 				last;
 			}
 		}
-		vprint vbase() + 1, color('g', "path created") ."\n"
+		vprint vbase() + 1, '>'. color('g', "path created") ."\n"
 			if $goodpath;
 	}
 
@@ -237,7 +230,7 @@ sub mkdir {
 # --- chdir wrapper ---
 sub chdir {
 	my $path = shift;
-	vprint vbase(), color('c', "chdir: ") ."$path\n";
+	vprint vbase(), '>'. color('c', "chdir: ") ."$path\n";
 	chdir $path or iTools::System::die("can't chdir to '$path': $!") && return undef;
 	return $path;
 }
@@ -272,38 +265,38 @@ sub symlink {
 		return undef;
 	}
 
-	vprint vbase(), color('c', "symlink: ") ."$source -> $dest\n";
+	vprint vbase(), '>'. color('c', "symlink: ") ."$source -> $dest\n";
 
 	# --- delete old symlink if possible ---
 	if (-l $dest) {
-		vprint vbase() + 1, color('y', "deleteting old symlink") ."\n";
+		vprint vbase() + 1, '>'. color('y', "deleteting old symlink") ."\n";
 		unlink $dest or iTools::System::die "could not delete old symlink\n" && return undef;
 	} elsif (-e $dest) {
 		iTools::System::die "cannot create symlink $dest, file is in the way\n" && return undef;
 	}
 
 	symlink $source, $dest or iTools::System::die "error creating symlink $dest" && return undef;
-	vprint vbase() + 1, color('g', "symlink created") ."\n";
+	vprint vbase() + 1, '>'. color('g', "symlink created") ."\n";
 	return 1;
 }
 # --- create a hard link ---
 sub link {
 	my ($ori, $new) = @_;
-	vprint vbase(), color('c', "link: ") ."$ori -> $new\n";
+	vprint vbase(), '>'. color('c', "link: ") ."$ori -> $new\n";
 	link $ori, $new
 		or iTools::System::die "could not create link\n" && return undef;
 }
 
 # --- delete a file ---
 sub unlink {
-	vprint vbase(), color('c', "unlink: ") . join(' ', @_) ."\n";
+	vprint vbase(), '>'. color('c', "unlink: ") . join(' ', @_) ."\n";
 	unlink @_ or iTools::System::die "could not delete files\n" && return;
 }
 
 # --- rename wrapper ---
 sub rename {
 	my ($old, $new) = @_;
-	vprint vbase(), color('c', "rename: ") ."$old -> $new\n";
+	vprint vbase(), '>'. color('c', "rename: ") ."$old -> $new\n";
 	rename $old, $new or return iTools::System::die("can't rename '$old' to '$new': $!") && return undef;
 	return $new;
 }
