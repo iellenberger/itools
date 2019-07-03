@@ -133,13 +133,31 @@ sub growl {
 	system qq[ /usr/local/bin/growlnotify -m "$message" -a "AirPort Utility.app" ]
 		if -f "/usr/local/bin/growlnotify";
 
+	# --- use terminal-notifier if installed ---
+	my $approot = (
+		grep { -d "$_/terminal-notifier.app" } ( '/Applications', "$ENV{HOME}/Applications" )
+	)[0] || '';
+	if ($approot) {
+		my $app = "$approot/terminal-notifier.app/Contents/MacOS/terminal-notifier";
+		qx[
+			$app -message "$message" -title "Toggle AirPort"
+		];
+	}
+
+	system qq[ osascript -e 'display notification "$message" with title "Toggle AirPort"' ];
+
+	# --- print to log ---
 	$message =~ s/^/   /mg;
 	lprint($message);
+
+	sleep 3;
 }
 
 # --- print to logfile ---
 sub lprint {
 	my $message = shift;
+
+	return unless -d $logdir;
 
 	# --- print message ---
 	$message .= "\n" unless $message =~ /\n$/msg;
@@ -241,7 +259,7 @@ sub saveState {
 
 	# --- write the config file ---
 	open STATEFILE, ">$statefile" or do {
-		growl("$progname is not correctly installed. Please run the following:\n\t$progname --install");
+		growl("$progname is not correctly installed. Please run '$progname --install'");
 		exit 1;
 	};
 	print STATEFILE $config;
@@ -299,7 +317,7 @@ sub getState {
 # --- clear out the state file ---
 sub clearState {
 	open STATEFILE, ">$statefile" or do {
-		growl("$progname is not correctly installed. Please run the following:\n\t$progname --install");
+		growl("$progname is not correctly installed. Please run '$progname --install'");
 		exit 1;
 	};
 	print STATEFILE '';
