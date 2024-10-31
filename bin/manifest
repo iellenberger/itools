@@ -647,11 +647,11 @@ sub configure {
 	delete @{$options}{qw(quiet verbose)};
 
 	unless ($options->{generate} || $options->{diff} || $options->{list}) {
-		given (shift @ARGV) {
-			when (/^g/i) { $options->{generate} = 1 }
-			when (/^d/i) { $options->{diff}     = 1 }
-			when (/^l/i) { $options->{list}     = 1 }
-			default      { usage("COMMAND required") }
+		for (shift @ARGV) {
+			if    (/^g/i) { $options->{generate} = 1 }
+			elsif (/^d/i) { $options->{diff}     = 1 }
+			elsif (/^l/i) { $options->{list}     = 1 }
+			else          { usage("COMMAND required") }
 		}
 	}
 
