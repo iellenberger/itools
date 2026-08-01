@@ -17,8 +17,9 @@ use warnings;
 # --- ANSI conversion for output sequences ---
 # sequence name => printf parsable ANSI code
 our $OUT = {
-	clear  => "\e[H\e[2J",
-	moveto => "\e[\%d;\%dH",
+	clear     => "\e[H\e[2J",
+	movetocol => "\e[\%dG",
+	moveto    => "\e[\%d;\%dH",
 };
 
 # --- ANSI conversion for input sequences --
@@ -179,6 +180,11 @@ sub sout {
 	return "error: no such command '$cmd'" unless exists $OUT->{$cmd};
 	return sprintf $OUT->{$cmd}, @args;
 }
+
+# === Public Methods =======================================================
+sub clear     { print shift->sout('clear') }
+sub moveto    { print shift->sout('moveto', @_) }
+sub movetocol { print shift->sout('movetocol', @_) }
 
 # === Private Methods =======================================================
 # --- convert character ordinal name ---
