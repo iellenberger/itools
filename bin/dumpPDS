@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+$VERSION=0.1;
+
+# --- set library path ---
+use FindBin qw( $RealBin );
+use lib ( "$RealBin/../lib/perl5", qw( /opt/itools/lib/perl5 ));
+
+use Data::Dumper; $Data::Dumper::Indent=1; $Data::Dumper::Sortkeys=1; # for debugging only
+
+use iTools::File::PDS qw( readPDS );
+
+use strict;
+use warnings;
+
+foreach my $filename (@ARGV) {
+	my $data = readPDS($filename);
+	print Dumper($data);
+}
